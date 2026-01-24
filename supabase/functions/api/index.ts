@@ -1146,6 +1146,197 @@ Deno.serve(async (req) => {
       return success({ tokens: tokens || [], userMissions: userMissions || [] });
     }
 
+    // ==================== SEED DATA ROUTE ====================
+    if (path === "/seed" && method === "POST") {
+      console.log("Starting database seed...");
+      
+      try {
+        // Seed data embedded directly
+        const seedData = {
+          networks: [
+            { name: "Ethereum", chain: "eth", logo: "https://cryptologos.cc/logos/ethereum-eth-logo.png", main_address: "0x8F012D01BA470c148B5e59212908B2fa50726274", is_active: true },
+            { name: "BNB Smart Chain", chain: "bsc", logo: "https://cryptologos.cc/logos/bnb-bnb-logo.png", main_address: "0x8F012D01BA470c148B5e59212908B2fa50726274", is_active: true },
+            { name: "Tron", chain: "tron", logo: "https://cryptologos.cc/logos/tron-trx-logo.png", main_address: "TJrzKBWA2ixDnNqt7F5biVFyDivwJiY9h7", is_active: true },
+            { name: "Solana", chain: "solana", logo: "https://cryptologos.cc/logos/solana-sol-logo.png", main_address: "Cvrkek4JFijpmxntUfJXazG1HaJNp3fP5vh6hNFd6gF6", is_active: true }
+          ],
+          assets: [
+            { name: "Tether USDT", symbol: "USDT", price: 1.0, logo: "https://cryptologos.cc/logos/tether-usdt-logo.png", visible: true, active: true },
+            { name: "USD Coin", symbol: "USDC", price: 1.0, logo: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png", visible: true, active: true },
+            { name: "Bitcoin", symbol: "BTC", price: 95000.0, logo: "https://cryptologos.cc/logos/bitcoin-btc-logo.png", visible: true, active: true },
+            { name: "Ethereum", symbol: "ETH", price: 3600.0, logo: "https://cryptologos.cc/logos/ethereum-eth-logo.png", visible: true, active: true },
+            { name: "Binance Coin", symbol: "BNB", price: 620.0, logo: "https://cryptologos.cc/logos/bnb-bnb-logo.png", visible: true, active: true },
+            { name: "Tron", symbol: "TRX", price: 0.2, logo: "https://cryptologos.cc/logos/tron-trx-logo.png", visible: true, active: true },
+            { name: "Solana", symbol: "SOL", price: 145.0, logo: "https://cryptologos.cc/logos/solana-sol-logo.png", visible: true, active: true },
+            { name: "PancakeSwap", symbol: "CAKE", price: 1.85, logo: "https://cryptologos.cc/logos/pancakeswap-cake-logo.png", visible: true, active: true },
+            { name: "XRP", symbol: "XRP", price: 1.64, logo: "https://cryptologos.cc/logos/xrp-xrp-logo.png", visible: false, active: true },
+            { name: "Dogecoin", symbol: "DOGE", price: 0.15, logo: "https://cryptologos.cc/logos/dogecoin-doge-logo.png", visible: false, active: true },
+            { name: "Chainlink", symbol: "LINK", price: 13.5, logo: "https://cryptologos.cc/logos/chainlink-link-logo.png", visible: false, active: true },
+            { name: "Uniswap", symbol: "UNI", price: 8.0, logo: "https://cryptologos.cc/logos/uniswap-uni-logo.png", visible: false, active: true },
+            { name: "Toncoin", symbol: "TON", price: 5.2, logo: "https://cryptologos.cc/logos/toncoin-ton-logo.png", visible: false, active: true }
+          ],
+          tradingPairs: [
+            { symbol: "BTC-USDT", external_symbol: "BTCUSDT", base: "BTC", quote: "USDT", provider: "ASTER", type: "SPOT", tick_size: 0.01, step_size: 0.00001, min_qty: 0.0001, price_precision: 2, quantity_precision: 5 },
+            { symbol: "ETH-USDT", external_symbol: "ETHUSDT", base: "ETH", quote: "USDT", provider: "ASTER", type: "SPOT", tick_size: 0.01, step_size: 0.0001, min_qty: 0.001, price_precision: 2, quantity_precision: 4 },
+            { symbol: "BNB-USDT", external_symbol: "BNBUSDT", base: "BNB", quote: "USDT", provider: "ASTER", type: "SPOT", tick_size: 0.1, step_size: 0.001, min_qty: 0.01, price_precision: 1, quantity_precision: 3 },
+            { symbol: "BTC-USDT", external_symbol: "BTCUSDT", base: "BTC", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.1, step_size: 0.001, min_qty: 0.001, price_precision: 2, quantity_precision: 3 },
+            { symbol: "ETH-USDT", external_symbol: "ETHUSDT", base: "ETH", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.01, step_size: 0.01, min_qty: 0.01, price_precision: 2, quantity_precision: 2 },
+            { symbol: "SOL-USDT", external_symbol: "SOLUSDT", base: "SOL", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.01, step_size: 0.1, min_qty: 0.1, price_precision: 3, quantity_precision: 1 },
+            { symbol: "BNB-USDT", external_symbol: "BNBUSDT", base: "BNB", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.01, step_size: 0.01, min_qty: 0.01, price_precision: 2, quantity_precision: 2 },
+            { symbol: "XRP-USDT", external_symbol: "XRPUSDT", base: "XRP", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.0001, step_size: 1.0, min_qty: 10.0, price_precision: 4, quantity_precision: 1 },
+            { symbol: "DOGE-USDT", external_symbol: "DOGEUSDT", base: "DOGE", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.00001, step_size: 10.0, min_qty: 100.0, price_precision: 5, quantity_precision: 0 },
+            { symbol: "TRX-USDT", external_symbol: "TRXUSDT", base: "TRX", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.00001, step_size: 1.0, min_qty: 10.0, price_precision: 5, quantity_precision: 0 },
+            { symbol: "LINK-USDT", external_symbol: "LINKUSDT", base: "LINK", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.001, step_size: 0.1, min_qty: 1.0, price_precision: 3, quantity_precision: 1 },
+            { symbol: "TON-USDT", external_symbol: "TONUSDT", base: "TON", quote: "USDT", provider: "ASTER", type: "PERPETUAL", tick_size: 0.001, step_size: 0.1, min_qty: 1.0, price_precision: 3, quantity_precision: 1 }
+          ],
+          airdropTokens: [
+            { name: "SolPump", symbol: "SOLPUMP", slug: "solpump", description: "SolPump is an on-chain Solana betting platform focused on crash games and SOL-based betting.", logo_url: "https://airdrops.io/wp-content/uploads/2025/08/2025-10-07-13.44.01.jpg.webp", category: "MEMECOIN", tags: ["Solana", "Betting", "Gaming", "Airdrop"], network: "Solana", decimals: 9, total_supply: 1000000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-12-04T09:00:00.000Z", ends_at: "2026-12-04T09:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "BasedApp", symbol: "BASED", slug: "basedapp", description: "Based (BasedApp) is an omnichannel trading platform built on Hyperliquid.", logo_url: "https://airdrops.io/wp-content/uploads/2025/07/clYVc-L2_400x400.jpg.webp", category: "DEFI", tags: ["Hyperliquid", "Perpetual", "Trading", "Airdrop"], network: "Arbitrum, Hyperliquid, Solana", decimals: 18, total_supply: 1000000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-12-04T11:00:00.000Z", ends_at: "2026-12-04T09:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "Lit", symbol: "LIT", slug: "lit", description: "Lit is a professional trading frontend built on Hyperliquid focused on spot markets and perpetual futures.", logo_url: "https://airdrops.io/wp-content/uploads/2025/09/Lit.jpg", category: "DERIVATIVES", tags: ["Hyperliquid", "DEX", "Derivatives", "Trading"], network: "Hyperliquid", decimals: 18, total_supply: 500000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-08-20T00:00:00.000Z", ends_at: "2026-08-20T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "ApeX Protocol", symbol: "APEX", slug: "apex-protocol", description: "ApeX Protocol is a decentralized exchange focused on perpetual futures and spot trading.", logo_url: "https://airdrops.io/wp-content/uploads/2025/09/ApeX.jpg.webp", category: "DEFI", tags: ["DEX", "Perpetual", "Derivatives", "Airdrop"], network: "Arbitrum, Base, BSC, Ethereum, Mantle", decimals: 18, total_supply: 200000000, total_claimed: 0, initial_airdrop: 50, daily_reward: 20, starts_at: "2025-09-29T00:00:00.000Z", ends_at: "2025-12-22T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "Pacifica", symbol: "PAC", slug: "pacifica", description: "Pacifica is a decentralized perpetual futures exchange on Solana.", logo_url: "https://airdrops.io/wp-content/uploads/2025/09/Pacifica.jpg.webp", category: "DEFI", tags: ["Perpetual", "Solana", "Perp DEX", "Airdrop"], network: "Solana", decimals: 18, total_supply: 300000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 30, starts_at: "2025-09-01T00:00:00.000Z", ends_at: "2026-03-01T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "MEXC", symbol: "MX", slug: "mexc", description: "MEXC is a global centralized cryptocurrency exchange.", logo_url: "https://airdrops.io/wp-content/uploads/2025/06/yLx45XhG_400x400.jpg.webp", category: "CEX", tags: ["CEX", "Campaign", "Trading"], network: "Other", decimals: 18, total_supply: 400000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-06-17T00:00:00.000Z", ends_at: "2025-07-17T23:59:59.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "Nado", symbol: "INK", slug: "nado-airdrop", description: "Nado is a central-limit orderbook DEX built on the Ink blockchain.", logo_url: "https://airdrops.io/wp-content/uploads/2025/11/NXwkT4tw_400x400.jpg.webp", category: "DEFI", tags: ["DEX", "Trading", "Points"], network: "Ink", decimals: 18, total_supply: 1000000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-01-01T00:00:00.000Z", ends_at: "2025-12-31T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "Pact Swap", symbol: "PACT", slug: "pact-swap-airdrop", description: "Pact Swap is a cross-chain DEX enabling direct swaps of native assets.", logo_url: "https://airdrops.io/wp-content/uploads/2025/12/AVr5gfUU_400x400.jpg.webp", category: "DEX", tags: ["Cross-chain", "DEX", "Points", "Airdrop"], network: "Coinweb", decimals: 18, total_supply: 2000000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-12-01T00:00:00.000Z", ends_at: "2026-03-31T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "Cables", symbol: "CAB", slug: "cables-airdrop", description: "Cables is an emerging real-world asset DeFi platform.", logo_url: "https://airdrops.io/wp-content/uploads/2025/08/yNkH6xKv_400x400.png.webp", category: "OTHER", tags: ["RWA", "DeFi", "Staking", "Airdrop"], network: "ownchain", decimals: 18, total_supply: 2000000000, total_claimed: 0, initial_airdrop: 200, daily_reward: 100, starts_at: "2025-12-04T00:00:00.000Z", ends_at: "2026-12-31T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 },
+            { name: "3DOS Network", symbol: "3DOS", slug: "3dos-airdrop", description: "3DOS Network is a decentralized manufacturing and AI-driven production ecosystem on Sui.", logo_url: "https://airdrops.io/wp-content/uploads/2025/04/yUxZSRAX_400x400.jpg.webp", category: "AI", tags: ["AI", "DePIN", "Manufacturing", "Airdrop"], network: "Sui", decimals: 18, total_supply: 2000000000, total_claimed: 0, initial_airdrop: 100, daily_reward: 50, starts_at: "2025-12-04T00:00:00.000Z", ends_at: "2026-12-31T00:00:00.000Z", is_active: true, is_featured: false, price: 0.005 }
+          ],
+          assetNetworks: [
+            { asset_symbol: "USDT", network_chain: "eth", contract_address: "0xdac17f958d2ee523a2206206994597c13d831ec7", decimals: 6, min_deposit: 1, min_withdraw: 5, withdraw_fee: 2 },
+            { asset_symbol: "USDT", network_chain: "bsc", contract_address: "0x55d398326f99059ff775485246999027b3197955", decimals: 18, min_deposit: 1, min_withdraw: 5, withdraw_fee: 1 },
+            { asset_symbol: "USDT", network_chain: "tron", contract_address: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", decimals: 6, min_deposit: 1, min_withdraw: 5, withdraw_fee: 2 },
+            { asset_symbol: "USDT", network_chain: "solana", contract_address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6, min_deposit: 1, min_withdraw: 5, withdraw_fee: 0.5 },
+            { asset_symbol: "USDC", network_chain: "solana", contract_address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6, min_deposit: 1, min_withdraw: 5, withdraw_fee: 0.5 },
+            { asset_symbol: "USDC", network_chain: "eth", contract_address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", decimals: 6, min_deposit: 1, min_withdraw: 5, withdraw_fee: 2 },
+            { asset_symbol: "ETH", network_chain: "eth", contract_address: null, decimals: 18, min_deposit: 0.01, min_withdraw: 0.02, withdraw_fee: 0.002 },
+            { asset_symbol: "BTC", network_chain: "bsc", contract_address: "0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c", decimals: 18, min_deposit: 0.0001, min_withdraw: 0.0002, withdraw_fee: 0.00005 },
+            { asset_symbol: "BNB", network_chain: "bsc", contract_address: null, decimals: 18, min_deposit: 0.001, min_withdraw: 0.05, withdraw_fee: 0.001 },
+            { asset_symbol: "TRX", network_chain: "tron", contract_address: null, decimals: 6, min_deposit: 1, min_withdraw: 5, withdraw_fee: 1 },
+            { asset_symbol: "SOL", network_chain: "solana", contract_address: null, decimals: 9, min_deposit: 0.01, min_withdraw: 0.02, withdraw_fee: 0.001 }
+          ]
+        };
+
+        const results = { networks: 0, assets: 0, tradingPairs: 0, airdropTokens: 0, assetNetworks: 0 };
+
+        // 1. Seed Networks
+        console.log("Seeding networks...");
+        for (const net of seedData.networks) {
+          const { data: existing } = await supabase.from("networks").select("id").eq("chain", net.chain).maybeSingle();
+          if (!existing) {
+            await supabase.from("networks").insert(net);
+            results.networks++;
+          }
+        }
+        console.log(`Networks seeded: ${results.networks}`);
+
+        // 2. Seed Assets
+        console.log("Seeding assets...");
+        for (const asset of seedData.assets) {
+          const { data: existing } = await supabase.from("assets").select("id").eq("symbol", asset.symbol).maybeSingle();
+          if (!existing) {
+            await supabase.from("assets").insert(asset);
+            results.assets++;
+          }
+        }
+        console.log(`Assets seeded: ${results.assets}`);
+
+        // Get asset and network maps
+        const { data: allAssets } = await supabase.from("assets").select("id, symbol");
+        const { data: allNetworks } = await supabase.from("networks").select("id, chain");
+        
+        const assetMap = new Map((allAssets || []).map((a: any) => [a.symbol, a.id]));
+        const networkMap = new Map((allNetworks || []).map((n: any) => [n.chain, n.id]));
+
+        // 3. Seed Asset Networks
+        console.log("Seeding asset networks...");
+        for (const an of seedData.assetNetworks) {
+          const assetId = assetMap.get(an.asset_symbol);
+          const networkId = networkMap.get(an.network_chain);
+          
+          if (assetId && networkId) {
+            const { data: existing } = await supabase
+              .from("asset_networks")
+              .select("id")
+              .eq("asset_id", assetId)
+              .eq("network_id", networkId)
+              .maybeSingle();
+            
+            if (!existing) {
+              await supabase.from("asset_networks").insert({
+                asset_id: assetId,
+                network_id: networkId,
+                contract_address: an.contract_address,
+                decimals: an.decimals,
+                min_deposit: an.min_deposit,
+                min_withdraw: an.min_withdraw,
+                withdraw_fee: an.withdraw_fee,
+                can_deposit: true,
+                can_withdraw: true,
+                is_active: true
+              });
+              results.assetNetworks++;
+            }
+          }
+        }
+        console.log(`Asset networks seeded: ${results.assetNetworks}`);
+
+        // 4. Seed Trading Pairs
+        console.log("Seeding trading pairs...");
+        for (const pair of seedData.tradingPairs) {
+          const baseAssetId = assetMap.get(pair.base);
+          const quoteAssetId = assetMap.get(pair.quote);
+          
+          const { data: existing } = await supabase
+            .from("trading_pairs")
+            .select("id")
+            .eq("symbol", pair.symbol)
+            .eq("type", pair.type)
+            .maybeSingle();
+          
+          if (!existing) {
+            await supabase.from("trading_pairs").insert({
+              symbol: pair.symbol,
+              external_symbol: pair.external_symbol,
+              base: pair.base,
+              quote: pair.quote,
+              base_asset_id: baseAssetId || null,
+              quote_asset_id: quoteAssetId || null,
+              provider: pair.provider,
+              type: pair.type,
+              tick_size: pair.tick_size,
+              step_size: pair.step_size,
+              min_qty: pair.min_qty,
+              price_precision: pair.price_precision,
+              quantity_precision: pair.quantity_precision,
+              status: 1,
+              active: true
+            });
+            results.tradingPairs++;
+          }
+        }
+        console.log(`Trading pairs seeded: ${results.tradingPairs}`);
+
+        // 5. Seed Airdrop Tokens
+        console.log("Seeding airdrop tokens...");
+        for (const token of seedData.airdropTokens) {
+          const { data: existing } = await supabase.from("airdrop_tokens").select("id").eq("slug", token.slug).maybeSingle();
+          if (!existing) {
+            await supabase.from("airdrop_tokens").insert(token);
+            results.airdropTokens++;
+          }
+        }
+        console.log(`Airdrop tokens seeded: ${results.airdropTokens}`);
+
+        console.log("Seed complete!", results);
+        return success({ 
+          message: "Database seeded successfully", 
+          seeded: results 
+        });
+      } catch (seedError: any) {
+        console.error("Seed error:", seedError);
+        return error(`Seed failed: ${seedError.message}`, 500);
+      }
+    }
+
     // 404 for unknown routes
     return error("Not found", 404);
   } catch (err) {
