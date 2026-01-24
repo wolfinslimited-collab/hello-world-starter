@@ -11,7 +11,7 @@ import {
   tokenApi, 
   missionApi,
   type SubmitOrderRequest 
-} from '../services/api';
+} from '../integrations/supabase/api';
 
 // Helper to get token from context/storage
 const getToken = (): string | undefined => {
@@ -213,4 +213,4 @@ export type {
   LeaderboardEntry,
   ApiResponse,
   SubmitOrderRequest,
-} from '../services/api';
+} from '../integrations/supabase/api';
