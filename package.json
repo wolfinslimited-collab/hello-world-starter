@@ -43,6 +43,7 @@
     "framer-motion": "^12.12.2",
     "i18next": "^24.2.2",
     "lightweight-charts": "^5.1.0",
+    "lovable-tagger": "^1.1.13",
     "lucide-react": "^0.475.0",
     "motion": "^12.23.22",
     "party-js": "^2.2.0",
