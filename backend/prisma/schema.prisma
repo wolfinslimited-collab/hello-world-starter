@@ -1,0 +1,516 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_DEX_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserStatusType {
+  Pending
+  Active
+  Inactive
+}
+
+model User {
+  id            Int            @id @default(autoincrement())
+  fullName      String?        @db.VarChar(64)
+  friends       Int            @default(0)
+  remainFriends Int            @default(0)
+  level         Int            @default(1)
+  boost         Int            @default(0)
+  status        UserStatusType @default(Pending)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  WalletTransactions WalletTransaction[]
+  transactions       Transaction[]
+  referrals          Referral[]          @relation("Referrals")
+  refereed           Referral?           @relation("Refereed")
+  wallets            Wallet[]
+  links              Links[]
+  orders             Order[]
+positions           Position[]
+  userTokens UserToken[]
+
+  leaderboardEntries LeaderboardEntry[]
+}
+model Links {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  address   String
+  chain     String   
+  signature String
+  user      User     @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  // Ensure an address is unique per chain
+  @@unique([address, chain]) 
+}
+
+model Referral {
+  id                Int      @id @default(autoincrement())
+  referrer          User     @relation("Referrals", fields: [referrerId], references: [id])
+  referrerId        Int
+  referee           User     @relation("Refereed", fields: [refereeId], references: [id])
+  refereeId         Int      @unique
+  createdAt         DateTime @default(now())
+  status            Boolean  @default(false)
+}
+
+
+model Network {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(32) 
+  slug        String   @unique @db.VarChar(16) // e.g. "eth", "bsc"
+  type        String   @db.VarChar(16)         // "EVM", "SOL", "TRON"
+  logo        String?  @db.VarChar(255)
+  
+  // PLATFORM WALLET (Where users send money)
+  mainAddress String?  @db.VarChar(128)        // <--- ADDED THIS
+  
+  isActive    Boolean  @default(true)
+  
+  // Relations
+  assets        AssetNetwork[]
+  transactions  WalletTransaction[]
+}
+model Asset {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(32)
+  symbol      String  @unique @db.VarChar(16)
+  price       Float   @default(0)
+  logo        String? @db.VarChar(255)
+  active      Boolean @default(true)
+  visible     Boolean @default(true)
+  // Relations
+  networks      AssetNetwork[]
+  userWallets   Wallet[]             
+  transactions  WalletTransaction[]
+
+  pairsAsBase   TradingPair[] @relation("BaseAsset")
+  pairsAsQuote  TradingPair[] @relation("QuoteAsset")
+}
+
+enum ExchangeProvider {
+  ASTER
+  HYPERLIQUID
+}
+
+enum PairType {
+  SPOT
+  PERPETUAL
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+}
+
+enum OrderStatus {
+  PENDING
+  OPEN
+  FILLED
+  CANCELED
+  FAILED
+}
+
+enum PositionSide {
+  LONG
+  SHORT
+}
+
+model TradingPair {
+  id                Int              @id @default(autoincrement())
+  symbol            String           @db.VarChar(32)
+  externalSymbol    String           @db.VarChar(32)       
+  provider          ExchangeProvider
+  type              PairType         @default(PERPETUAL)
+  
+  // Relations
+  base              String           @db.VarChar(16)
+  quote             String           @db.VarChar(16)
+  baseAssetId       Int
+  baseAsset         Asset            @relation("BaseAsset", fields: [baseAssetId], references: [id])
+  quoteAssetId      Int
+  quoteAsset        Asset            @relation("QuoteAsset", fields: [quoteAssetId], references: [id])
+
+
+  // Trading Rules
+  tickSize          Float            @default(0)
+  stepSize          Float            @default(0)
+  minQty            Float            @default(0)
+  maxQty            Float            @default(0)
+  minPrice          Float            @default(0)
+  
+
+  pricePrecision    Int              @default(2)
+  quantityPrecision Int              @default(3)
+
+  status            Int              @default(1) 
+  active            Boolean          @default(true)
+
+  createdAt         DateTime         @default(now())
+
+  orders            Order[]
+  positions         Position[]
+
+  @@unique([symbol, type], name: "symbol_type")
+}
+
+model Order {
+  id              Int           @id @default(autoincrement())
+  userId          Int
+  pairId          Int
+  pair            TradingPair   @relation(fields: [pairId], references: [id])
+  
+  externalId      String?       // ID returned by Aster/Hyperliquid
+  side            OrderSide
+  type            OrderType
+  price           Float?        // Null for Market orders
+  quantity        Float
+  leverage        Int           @default(1)
+  isIsolated      Boolean       @default(true) // Isolated vs Cross
+  
+  status          OrderStatus   @default(PENDING)
+  filledQty       Float         @default(0)
+  avgFillPrice    Float         @default(0)
+  
+  errorMessage    String?       // If failed on exchange
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  users User[]
+
+}
+
+model Position {
+  id              Int           @id @default(autoincrement())
+  userId          Int
+  pairId          Int
+  pair            TradingPair   @relation(fields: [pairId], references: [id])
+  
+  side            PositionSide
+  entryPrice      Float
+  amount          Float         // Size of position
+  leverage        Int
+  margin          Float         // Locked collateral
+  
+  liquidationPrice Float?
+  unrealizedPnL   Float         @default(0)
+  
+  isOpen          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  users User[]
+
+}
+
+model AssetNetwork {
+  id              Int     @id @default(autoincrement())
+  assetId         Int
+  networkId       Int
+  isActive        Boolean  @default(true)
+  canDeposit      Boolean  @default(true)
+  canWithdraw     Boolean  @default(true)
+  minWithdraw     Float    @default(1)
+  minDeposit      Float    @default(1)
+  withdrawFee     Float    @default(1)
+  contractAddress String?  @db.VarChar(128)
+  decimals        Int      @default(18)
+  
+  // Relations
+  asset   Asset   @relation(fields: [assetId], references: [id])
+  network Network @relation(fields: [networkId], references: [id])
+
+  @@unique([assetId, networkId])
+}
+
+model Wallet {
+  id        Int      @id @default(autoincrement())
+  
+  userId    Int
+  assetId   Int
+  
+  balance   Float    @default(0)
+  locked    Float    @default(0) 
+  
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id])
+  asset     Asset    @relation(fields: [assetId], references: [id])
+
+  @@unique([userId, assetId]) // One wallet per asset per user
+}
+
+model WalletTransaction {
+  id            Int                    @id @default(autoincrement())
+  
+  userId        Int
+  assetId       Int?
+  networkId     Int?   
+  memo          String? 
+  amount        Float?
+  txId          String?                @unique @db.VarChar(128)
+  
+  // Addresses used in the transfer
+  fromAddress   String?                @db.VarChar(128)
+  toAddress     String?                @db.VarChar(128)
+  
+  type          AssetTransactionType
+  status        AssetTransactionStatus
+  
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id])
+  asset   Asset?   @relation(fields: [assetId], references: [id])
+  network Network? @relation(fields: [networkId], references: [id])
+}
+
+// ENUMS
+enum AssetTransactionType {
+  Withdraw
+  Deposit
+  Transfer
+  Trade
+}
+
+enum AssetTransactionStatus {
+  Pending
+  Completed
+  Failed
+  Rejected
+}
+
+
+
+
+enum TransactionTag {
+  Referral
+  Spend
+  Task
+  Prize
+  Gift
+  Join
+  Reward
+  Withdraw
+  Deposit
+  Hold
+  Daily
+  Activate
+}
+
+enum TransactionType {
+  In
+  Out
+}
+
+model Transaction {
+  id            Int              @id @default(autoincrement())
+  userId        Int
+  txId          String?           @db.VarChar(256)
+  amount        Float?
+  tag           TransactionTag?
+  type          TransactionType?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user   User  @relation(fields: [userId], references: [id])
+}
+
+model Setting {
+  id    Int     @id @default(autoincrement())
+  type  String? @db.VarChar(32)
+  key   String? @db.VarChar(32)
+  value Json?
+
+  @@unique([type, key], name: "keys")
+}
+
+model DailyLimit {
+  id     Int      @id @default(autoincrement())
+  userId Int
+  date   DateTime @default(now())
+  count  Int      @default(0)
+  prize  Json?
+
+  @@unique([userId, date], name: "daily")
+}
+
+
+
+enum AirdropCategory {
+  DEFI
+  GAMEFI
+  LAYER_2
+  MUSIC
+  NFT
+  INFRASTRUCTURE
+  MEME
+  AI
+  MEMECOIN
+  DERIVATIVES
+  DEX
+  CEX
+  OTHER
+}
+
+
+model AirdropToken {
+  id          Int   @id @default(autoincrement())
+  
+  name        String
+  symbol      String
+  slug        String   @unique 
+  description String   @db.Text 
+  logoUrl     String?
+  coverUrl    String?  
+  websiteUrl  String?
+  whitepaperUrl String?
+
+  category    AirdropCategory
+  tags        String[] 
+
+  network       String?   
+  chainId       Int?    
+  contractAddress String? 
+  decimals      Int      @default(18)
+
+  twitterUrl    String?
+  discordUrl    String?
+  telegramUrl   String?
+  
+  totalSupply         Int
+  totalClaimed        Int   @default(0)
+  initialAirdrop      Int 
+  dailyReward         Int 
+
+  startsAt      DateTime @default(now())
+  endsAt        DateTime 
+
+  isActive      Boolean  @default(true)
+  isFeatured    Boolean  @default(false)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  price        Float     @default(0.001)
+
+  userStates    UserToken[]
+
+}
+
+model UserToken {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  tokenId       Int
+  balance       Float     @default(0) 
+  lastActionAt  DateTime  @default(now())
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  user          User         @relation(fields: [userId], references: [id])
+  token         AirdropToken @relation(fields: [tokenId], references: [id])
+  @@unique([userId, tokenId])
+}
+
+
+model Missions {
+  id            Int      @id @default(autoincrement())
+  title         String   @db.VarChar(100)
+  description   String?  @db.VarChar(255)
+  provider      String   @db.VarChar(50)  
+  
+  rewardAmount  Int      @default(0)
+  actionUrl     String?  @db.VarChar(255)
+  logo          String?  @db.VarChar(255)
+  tags          String[] 
+  meta          Json?    
+  orderId       Int      @default(0)     
+  isActive      Boolean  @default(true)
+  force         Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  UserTasks     UserMission[]
+}
+
+model UserMission {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  missionId      Int  
+  reward      Int?
+  createdAt   DateTime  @default(now())
+
+  Task        Missions      @relation(fields: [missionId], references: [id])
+
+  @@unique([missionId, userId], name: "task_user_unique")
+}
+
+enum LeaderboardPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model LeaderboardEntry {
+  id          Int               @id @default(autoincrement())
+  userId      Int
+  period      LeaderboardPeriod
+  startDate   DateTime          
+  score       Float             @default(0) 
+  updatedAt   DateTime          @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id])
+
+  @@unique([userId, period, startDate], name: "unique_user_period_entry")
+
+}
+
+
+enum ConversationSource {
+  WEB
+}
+
+model Conversation {
+  id         Int                @id @default(autoincrement())
+  uid        String
+  email      String?
+  startedAt  DateTime           @default(now())
+  endedAt    DateTime?
+  aiMode     Boolean            @default(true)
+  updatedAt  DateTime           @default(now())
+  source     ConversationSource @default(WEB)
+  telegramId String?
+  meta       Json?
+  info       Json?
+  messages   ChatMessage[]
+  userRead   Boolean            @default(true)
+  adminRead  Boolean            @default(false)
+}
+
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  cId       Int
+  uid       String
+  from      String
+  text      String
+  feedback  Int?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [cId], references: [id])
+}
