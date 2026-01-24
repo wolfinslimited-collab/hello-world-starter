@@ -15,6 +15,7 @@ const menuItems = [
   { name: "Leaderboards", path: "/leaderboards" },
   { name: "Missions", path: "/missions" },
   { name: "Referral", path: "/friends" },
+  { name: "Dev", path: "/dev" },
 ];
 
 export default function Navbar() {
