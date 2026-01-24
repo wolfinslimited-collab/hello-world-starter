@@ -1,10 +1,9 @@
 /**
  * API Service - Calls Edge Functions for backend operations
+ * Migrated from Fastify/Prisma backend to Supabase Edge Functions
  */
 
-import { supabase } from "./client";
-
-// API Response Types
+// ==================== RESPONSE TYPES ====================
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
@@ -12,7 +11,7 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
-// User Types
+// ==================== USER TYPES ====================
 export interface User {
   id: number;
   full_name: string | null;
@@ -51,7 +50,7 @@ export interface UserProfileResponse {
   tokens: UserToken[];
 }
 
-// Auth Types
+// ==================== AUTH TYPES ====================
 export interface AuthRequest {
   chain: string;
   address: string;
@@ -65,7 +64,7 @@ export interface AuthResponse {
   isNewUser: boolean;
 }
 
-// Wallet Types
+// ==================== WALLET TYPES ====================
 export interface Wallet {
   id: number;
   user_id: number;
@@ -84,15 +83,60 @@ export interface Asset {
   logo: string | null;
   active: boolean;
   visible: boolean;
+  networks?: AssetNetwork[];
 }
 
-// Trading Types
+export interface AssetNetwork {
+  id: number;
+  asset_id: number;
+  network_id: number;
+  contract_address: string | null;
+  decimals: number;
+  min_deposit: number;
+  min_withdraw: number;
+  withdraw_fee: number;
+  can_deposit: boolean;
+  can_withdraw: boolean;
+  is_active: boolean;
+  network?: Network;
+}
+
+export interface Network {
+  id: number;
+  name: string;
+  chain: string;
+  logo: string | null;
+  main_address: string | null;
+  explorer_url: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface WalletTransaction {
+  id: number;
+  user_id: number;
+  asset_id: number;
+  network_id: number | null;
+  tx_id: string | null;
+  amount: number;
+  from_address: string | null;
+  to_address: string | null;
+  type: string;
+  status: string;
+  memo: string | null;
+  created_at: string;
+  updated_at: string;
+  asset?: Asset;
+  network?: Network;
+}
+
+// ==================== TRADING TYPES ====================
 export interface TradingPair {
   id: number;
   symbol: string;
   external_symbol: string | null;
-  provider: "ASTER" | "HYPERLIQUID";
-  type: "SPOT" | "PERPETUAL";
+  provider: string;
+  type: string;
   base: string;
   quote: string;
   base_asset_id: number | null;
@@ -113,13 +157,13 @@ export interface Order {
   user_id: number;
   pair_id: number;
   external_id: string | null;
-  side: "BUY" | "SELL";
-  type: "MARKET" | "LIMIT";
+  side: string;
+  type: string;
   price: number | null;
   quantity: number;
   leverage: number;
   is_isolated: boolean;
-  status: "PENDING" | "OPEN" | "FILLED" | "CANCELED" | "FAILED";
+  status: string;
   filled_qty: number;
   avg_fill_price: number;
   error_message: string | null;
@@ -132,7 +176,7 @@ export interface Position {
   id: number;
   user_id: number;
   pair_id: number;
-  side: "LONG" | "SHORT";
+  side: string;
   entry_price: number;
   amount: number;
   leverage: number;
@@ -146,7 +190,7 @@ export interface Position {
 }
 
 export interface SubmitOrderRequest {
-  pairId: number;
+  pair: number;
   side: "BUY" | "SELL";
   type: "MARKET" | "LIMIT";
   price?: number;
@@ -155,7 +199,7 @@ export interface SubmitOrderRequest {
   isIsolated?: boolean;
 }
 
-// Airdrop Token Types
+// ==================== AIRDROP TOKEN TYPES ====================
 export interface AirdropToken {
   id: number;
   name: string;
@@ -186,7 +230,24 @@ export interface AirdropToken {
   price: number;
 }
 
-// Mission Types
+export interface ClaimResult {
+  claimed: number;
+  balance: number;
+  isInitial?: boolean;
+}
+
+export interface ClaimAllResult {
+  claimedCount: number;
+  claimedTokens: {
+    logo: string | null;
+    name: string;
+    symbol: string;
+    amount: number;
+    newBalance?: number;
+  }[];
+}
+
+// ==================== MISSION TYPES ====================
 export interface Mission {
   id: number;
   title: string;
@@ -203,6 +264,15 @@ export interface Mission {
   created_at: string;
 }
 
+export interface UserMission {
+  id: number;
+  user_id: number;
+  mission_id: number;
+  completed_at: string;
+  mission?: Mission;
+}
+
+// ==================== LEADERBOARD TYPES ====================
 export interface LeaderboardEntry {
   rank: number;
   userId: number;
@@ -211,7 +281,23 @@ export interface LeaderboardEntry {
   level: number;
 }
 
-// Helper to get token from localStorage
+export interface Leaderboards {
+  daily: LeaderboardEntry[];
+  weekly: LeaderboardEntry[];
+  monthly: LeaderboardEntry[];
+}
+
+// ==================== REFERRAL TYPES ====================
+export interface Referral {
+  id: number;
+  referrer_id: number;
+  referee_id: number;
+  status: boolean;
+  created_at: string;
+  referee?: User;
+}
+
+// ==================== API HELPERS ====================
 const getToken = (): string | undefined => {
   if (typeof window !== "undefined") {
     return localStorage.getItem("appToken") || undefined;
@@ -219,43 +305,19 @@ const getToken = (): string | undefined => {
   return undefined;
 };
 
-// API call helper
-async function callApi<T>(
-  path: string,
-  options: {
-    method?: "GET" | "POST" | "PUT" | "DELETE";
-    body?: any;
-    token?: string;
-  } = {}
-): Promise<T> {
-  const { method = "GET", body, token = getToken() } = options;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+const setToken = (token: string): void => {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("appToken", token);
   }
+};
 
-  const { data, error } = await supabase.functions.invoke("api", {
-    method: "POST",
-    body: {
-      _path: path,
-      _method: method,
-      ...body,
-    },
-    headers,
-  });
-
-  if (error) {
-    throw new Error(error.message);
+const clearToken = (): void => {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("appToken");
   }
+};
 
-  return data as T;
-}
-
-// Use fetch directly for proper HTTP method support
+// Direct fetch to Edge Function
 async function fetchApi<T>(
   path: string,
   options: {
@@ -264,16 +326,17 @@ async function fetchApi<T>(
     token?: string;
   } = {}
 ): Promise<T> {
-  const { method = "GET", body, token = getToken() } = options;
-  
+  const { method = "GET", body, token: providedToken } = options;
+  const token = providedToken || getToken();
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  
+
   const url = `${supabaseUrl}/functions/v1/api${path}`;
-  
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "apikey": supabaseKey,
+    apikey: supabaseKey,
   };
 
   if (token) {
@@ -287,109 +350,188 @@ async function fetchApi<T>(
   });
 
   const data = await response.json();
-  
-  if (!data.success) {
-    throw new Error(data.error || "API request failed");
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || data.message || "API request failed");
   }
 
-  return data as T;
+  return data;
 }
 
-// ============= Auth API =============
+// ==================== AUTH API ====================
 export const authApi = {
-  login: (data: AuthRequest) =>
-    fetchApi<AuthResponse>("/user/auth", { method: "POST", body: data }),
+  login: async (data: AuthRequest): Promise<AuthResponse> => {
+    const response = await fetchApi<{ success: boolean } & AuthResponse>("/user/auth", {
+      method: "POST",
+      body: data,
+    });
+    if (response.token) {
+      setToken(response.token);
+    }
+    return response;
+  },
 
-  getProfile: (token?: string) =>
-    fetchApi<UserProfileResponse>("/user/profile", { token }),
+  linkWallet: async (data: AuthRequest, token?: string): Promise<{ user: User }> => {
+    return fetchApi("/user/link", { method: "POST", body: data, token });
+  },
 
-  updateProfile: (data: { fullName: string }, token?: string) =>
-    fetchApi<any>("/user/update", { method: "POST", body: data, token }),
+  getProfile: async (token?: string): Promise<UserProfileResponse> => {
+    return fetchApi("/user/profile", { token });
+  },
 
-  linkWallet: (
-    data: { chain: string; address: string; signature: string },
-    token?: string
-  ) => fetchApi<any>("/user/link", { method: "POST", body: data, token }),
+  updateProfile: async (data: { fullName: string }, token?: string): Promise<{ user: User }> => {
+    return fetchApi("/user/update", { method: "POST", body: data, token });
+  },
 
-  activate: (token?: string) =>
-    fetchApi<any>("/user/active", { method: "POST", token }),
+  activate: async (data: { walletId: number; amount: number }, token?: string): Promise<{ user: User } & ClaimAllResult> => {
+    return fetchApi("/user/activate", { method: "POST", body: data, token });
+  },
 
-  upgrade: (token?: string) =>
-    fetchApi<any>("/user/upgrade", { method: "POST", token }),
+  upgrade: async (data: { walletId: number; amount: number }, token?: string): Promise<{ user: User }> => {
+    return fetchApi("/user/upgrade", { method: "POST", body: data, token });
+  },
 
-  boost: (token?: string) =>
-    fetchApi<any>("/user/boost", { method: "POST", token }),
+  boost: async (data: { walletId: number; amount: number }, token?: string): Promise<{ user: User; tokens: UserToken[] }> => {
+    return fetchApi("/user/boost", { method: "POST", body: data, token });
+  },
 
-  getFriends: (token?: string) =>
-    fetchApi<any>("/user/friends", { token }),
+  getFriends: async (page = 1, limit = 10, token?: string): Promise<{ users: Referral[] }> => {
+    return fetchApi(`/user/friends?page=${page}&limit=${limit}`, { token });
+  },
 
-  getLeaderboards: (token?: string) =>
-    fetchApi<{ leaders: { daily: LeaderboardEntry[]; weekly: LeaderboardEntry[]; monthly: LeaderboardEntry[] } }>("/user/leaderboards", { token }),
+  getLeaderboards: async (token?: string): Promise<{ leaders: Leaderboards }> => {
+    return fetchApi("/user/leaderboards", { token });
+  },
+
+  logout: (): void => {
+    clearToken();
+  },
+
+  isLoggedIn: (): boolean => {
+    return !!getToken();
+  },
+
+  getToken,
+  setToken,
+  clearToken,
 };
 
-// ============= Wallet API =============
+// ==================== WALLET API ====================
 export const walletApi = {
-  getAssets: () => fetchApi<Asset[]>("/wallet/assets"),
+  getAssets: async (): Promise<Asset[]> => {
+    const response = await fetchApi<any>("/wallet/assets");
+    return response as Asset[];
+  },
 
-  getBalance: (token?: string) =>
-    fetchApi<Wallet[]>("/wallet/balance", { token }),
+  getBalance: async (token?: string): Promise<Wallet[]> => {
+    const response = await fetchApi<any>("/wallet/balance", { token });
+    return response as Wallet[];
+  },
 
-  getTransactions: (token?: string) =>
-    fetchApi<any[]>("/wallet/transactions", { token }),
+  getTransactions: async (token?: string): Promise<WalletTransaction[]> => {
+    const response = await fetchApi<any>("/wallet/transactions", { token });
+    return response as WalletTransaction[];
+  },
 
-  deposit: (
-    data: { assetId: number; networkId: number; txId: string; amount: number; fromAddress: string },
+  deposit: async (
+    data: {
+      txId: string;
+      amount: number;
+      assetId: number;
+      networkId: number;
+      fromAddress: string;
+    },
     token?: string
-  ) => fetchApi<any>("/wallet/deposit", { method: "POST", body: data, token }),
+  ): Promise<{ transaction: WalletTransaction }> => {
+    return fetchApi("/wallet/deposit", { method: "POST", body: data, token });
+  },
 
-  withdraw: (
-    data: { assetId: number; networkId: number; amount: number; address: string },
+  withdraw: async (
+    data: {
+      amount: number;
+      assetId: number;
+      networkId: number;
+      toAddress: string;
+    },
     token?: string
-  ) => fetchApi<any>("/wallet/withdraw", { method: "POST", body: data, token }),
+  ): Promise<{ transaction: WalletTransaction; fee: number; finalAmount: number }> => {
+    return fetchApi("/wallet/withdraw", { method: "POST", body: data, token });
+  },
 };
 
-// ============= Trading API =============
+// ==================== TRADING API ====================
 export const tradingApi = {
-  getPairs: () => fetchApi<TradingPair[]>("/trade/pairs"),
+  getPairs: async (): Promise<TradingPair[]> => {
+    const response = await fetchApi<any>("/trade/pairs");
+    return response as TradingPair[];
+  },
 
-  submitOrder: (data: SubmitOrderRequest, token?: string) =>
-    fetchApi<Order>("/trade/order", { method: "POST", body: data, token }),
+  submitOrder: async (data: SubmitOrderRequest, token?: string): Promise<{ orderId: number; order: Order }> => {
+    return fetchApi("/trade/submit", { method: "POST", body: data, token });
+  },
 
-  cancelOrder: (orderId: number, token?: string) =>
-    fetchApi<any>(`/trade/order/${orderId}/cancel`, { method: "POST", token }),
+  cancelOrder: async (orderId: number, token?: string): Promise<{ canceled: boolean }> => {
+    return fetchApi("/trade/cancel", { method: "POST", body: { orderId }, token });
+  },
 
-  closePosition: (positionId: number, token?: string) =>
-    fetchApi<any>(`/trade/position/${positionId}/close`, { method: "POST", token }),
+  closePosition: async (positionId: number, token?: string): Promise<{ closed: boolean }> => {
+    return fetchApi("/trade/close", { method: "POST", body: { positionId }, token });
+  },
 
-  getOpenOrders: (pairId?: number, token?: string) =>
-    fetchApi<Order[]>(`/trade/orders${pairId ? `?pairId=${pairId}` : ""}`, { token }),
+  getOpenOrders: async (pairId?: number, token?: string): Promise<Order[]> => {
+    const query = pairId ? `?pairId=${pairId}` : "";
+    const response = await fetchApi<any>(`/trade/orders${query}`, { token });
+    return response as Order[];
+  },
 
-  getPositions: (pairId?: number, token?: string) =>
-    fetchApi<Position[]>(`/trade/positions${pairId ? `?pairId=${pairId}` : ""}`, { token }),
+  getPositions: async (pairId?: number, token?: string): Promise<Position[]> => {
+    const query = pairId ? `?pairId=${pairId}` : "";
+    const response = await fetchApi<any>(`/trade/positions${query}`, { token });
+    return response as Position[];
+  },
 
-  getHistory: (pairId?: number, token?: string) =>
-    fetchApi<Order[]>(`/trade/history${pairId ? `?pairId=${pairId}` : ""}`, { token }),
+  getHistory: async (pairId?: number, token?: string): Promise<Order[]> => {
+    const query = pairId ? `?pairId=${pairId}` : "";
+    const response = await fetchApi<any>(`/trade/history${query}`, { token });
+    return response as Order[];
+  },
 };
 
-// ============= Token API =============
+// ==================== TOKEN API ====================
 export const tokenApi = {
-  getAll: () => fetchApi<{ tokens: AirdropToken[]; count: number }>("/tokens"),
+  getAll: async (): Promise<{ tokens: AirdropToken[]; count: number }> => {
+    return fetchApi("/tokens");
+  },
 
-  getBySlug: (slug: string) =>
-    fetchApi<AirdropToken>(`/tokens/${slug}`),
+  getBySlug: async (slug: string): Promise<AirdropToken> => {
+    const response = await fetchApi<any>(`/tokens/${slug}`);
+    return response as AirdropToken;
+  },
 
-  claim: (tokenId: number, token?: string) =>
-    fetchApi<any>("/tokens/claim", { method: "POST", body: { tokenId }, token }),
+  claimInitial: async (token?: string): Promise<ClaimAllResult> => {
+    return fetchApi("/tokens/claimInit", { method: "POST", token });
+  },
+
+  claim: async (tokenId: number, token?: string): Promise<ClaimResult> => {
+    return fetchApi("/tokens/claim", { method: "POST", body: { tokenId }, token });
+  },
+
+  claimAll: async (token?: string): Promise<ClaimAllResult> => {
+    return fetchApi("/tokens/claimAll", { method: "POST", token });
+  },
 };
 
-// ============= Mission API =============
+// ==================== MISSION API ====================
 export const missionApi = {
-  getAll: (token?: string) =>
-    fetchApi<{ missions: Mission[] }>("/missions", { token }),
+  getAll: async (token?: string): Promise<{ missions: Mission[] }> => {
+    return fetchApi("/missions", { token });
+  },
 
-  getUserMissions: (token?: string) =>
-    fetchApi<any>("/missions/user", { token }),
+  getUserMissions: async (token?: string): Promise<{ userMissions: UserMission[] }> => {
+    return fetchApi("/missions/user", { token });
+  },
 
-  complete: (missionId: number, token?: string) =>
-    fetchApi<any>("/missions/complete", { method: "POST", body: { missionId }, token }),
+  complete: async (missionId: number, token?: string): Promise<{ tokens: UserToken[]; userMissions: UserMission[] }> => {
+    return fetchApi("/missions/complete", { method: "POST", body: { missionId }, token });
+  },
 };

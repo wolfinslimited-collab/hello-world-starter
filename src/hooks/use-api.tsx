@@ -30,11 +30,11 @@ export const useProfile = () => {
   });
 };
 
-export const useFriends = () => {
+export const useFriends = (page = 1, limit = 10) => {
   const token = getToken();
   return useQuery({
-    queryKey: ['friends'],
-    queryFn: () => authApi.getFriends(token!),
+    queryKey: ['friends', page, limit],
+    queryFn: () => authApi.getFriends(page, limit, token),
     enabled: !!token,
   });
 };
