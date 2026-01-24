@@ -17,6 +17,8 @@ declare module "locales";
 declare module "locales/*";
 declare module "assets/*";
 declare module "wallet/*";
+declare module "services/*";
+declare module "types/*";
 
 // Common asset/module shims
 declare module "*.css";
