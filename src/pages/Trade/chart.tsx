@@ -278,7 +278,7 @@ const Chart = () => {
             ))}
           </div>
           <div className="relative z-20">
-            <Menu>
+            <Menu as="div">
               <Menu.Button className="flex items-center gap-1 text-black dark:text-white hover:opacity-70">
                 {interval.label} <ChevronDown size={12} />
               </Menu.Button>
