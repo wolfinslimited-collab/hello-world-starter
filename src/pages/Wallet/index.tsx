@@ -101,7 +101,7 @@ const Wallet = () => {
   const stats = useMemo(() => {
     let totalEquity = 0;
     let totalLocked = 0;
-    wallet.forEach((a) => {
+    wallet.forEach((a: any) => {
       totalEquity += a.balance * a.asset.price;
       totalLocked += a.locked * a.asset.price;
     });

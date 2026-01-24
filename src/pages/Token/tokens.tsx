@@ -75,10 +75,14 @@ const getTokenStatus = (start: string, end: string) => {
 
 export default function AirdropTable({ limit = 30 }: { limit?: number }) {
   const {
-    memory: { tokens = [] },
-    app: { tokens: userTokens = [] },
+    memory: { tokens: memoryTokens = [] },
+    app: { tokens: appUserTokens = [] },
     setMemory,
   } = useStorage();
+
+  // Storage is typed as `any` in the context; cast locally for strict TS.
+  const tokens = (memoryTokens ?? []) as TokenData[];
+  const userTokens = (appUserTokens ?? []) as UserTokenData[];
 
   const [searchParams] = useSearchParams();
   const filterType = searchParams.get("type");
@@ -90,14 +94,12 @@ export default function AirdropTable({ limit = 30 }: { limit?: number }) {
   const [showAll, setShowAll] = useState(false);
 
   const categories = useMemo(() => {
-    const cats = new Set(tokens?.map((t: TokenData) => t.category) || []);
+    const cats = new Set(tokens.map((t) => t.category));
     return ["All", ...Array.from(cats)];
   }, [tokens]);
 
   const filteredTokens = useMemo(() => {
-    if (!tokens) return [];
-
-    return tokens.filter((t: TokenData) => {
+    return tokens.filter((t) => {
       const matchesSearch =
         t.name.toLowerCase().includes(search.toLowerCase()) ||
         t.symbol.toLowerCase().includes(search.toLowerCase());
@@ -161,9 +163,7 @@ export default function AirdropTable({ limit = 30 }: { limit?: number }) {
               (tag) => (
                 <button
                   key={tag}
-                  onClick={() =>
-                    setSelectedTag(selectedTag === tag ? null : tag)
-                  }
+                  onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
                   className={`px-2 py-1 rounded-md border transition-colors ${
                     selectedTag === tag
                       ? "border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
