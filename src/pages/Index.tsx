@@ -12,6 +12,7 @@ import TokenDetailsPage from "./Token";
 import ScrollToTop from "components/common/scroll-top";
 import Trade from "./Trade";
 import NotFound from "components/specific/not-found";
+import DevTools from "./DevTools";
 
 const AppRoutes = () => {
   return (
@@ -23,9 +24,9 @@ const AppRoutes = () => {
         <Route path="/wallet" element={<Wallet />} />
         <Route path="/missions" element={<Missions />} />
         <Route path="/friends" element={<Friends />} />
-        <Route path="/friends" element={<Friends />} />
         <Route path="/leaderboards" element={<Leaderboards />} />
         <Route path="/token/:slug" element={<TokenDetailsPage />} />
+        <Route path="/dev" element={<DevTools />} />
 
         <Route
           path="/profile"
