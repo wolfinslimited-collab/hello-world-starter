@@ -317,7 +317,11 @@ export const get = async <T>(
   const result = await fetchApi<T>(path.startsWith("/") ? path : `/${path}`, {
     requiresAuth: !!opt?.token,
   });
-  return result.success ? result.data : { success: false, error: result.error };
+  // Return the full response data spread with success flag for legacy compatibility
+  if (result.success && result.data) {
+    return { success: true, ...result.data };
+  }
+  return { success: false, error: result.error };
 };
 
 export const json = async <T>(
