@@ -16,9 +16,10 @@ interface TokenData {
   id: number;
   name: string;
   symbol: string;
-  logoUrl: string | null;
+  logo_url?: string | null;
+  logoUrl?: string | null; // Legacy support
   slug: string;
-  price?: number; // Added optional price from your JSON
+  price?: number;
 }
 
 interface UserToken {
@@ -191,15 +192,15 @@ export default function PortfolioAirdrops({ mini = false }: any) {
               {/* Left: Token Identity */}
               <div className="flex items-center gap-4">
                 <div className="relative shrink-0">
-                  {item.token.logoUrl ? (
+                  {(item.token.logo_url || item.token.logoUrl) ? (
                     <img
-                      src={item.token.logoUrl}
+                      src={item.token.logo_url || item.token.logoUrl || ''}
                       alt={item.token.name}
                       className="size-12 rounded-full object-cover bg-white dark:bg-neutral-800 shadow-sm ring-1 ring-neutral-100 dark:ring-white/5"
                     />
                   ) : (
                     <div className="size-12 rounded-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-white/5 dark:to-white/10 flex items-center justify-center text-neutral-600 dark:text-white font-bold text-lg ring-1 ring-neutral-100 dark:ring-white/5">
-                      {item.token.symbol[0]}
+                      {item.token.symbol?.[0] || '?'}
                     </div>
                   )}
                 </div>

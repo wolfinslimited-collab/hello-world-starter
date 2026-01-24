@@ -37,7 +37,9 @@ const Loader = ({ children }: { children: any }) => {
   const get_token = async () => {
     const res: any = await get("tokens");
     if (res?.success) {
-      setMemory({ tokens: res?.data?.tokens });
+      // Store airdrop token list in memory (for token listing pages)
+      const tokensList = res?.tokens || res?.data?.tokens || [];
+      setMemory({ tokens: tokensList });
     }
   };
   useEffect(() => {
