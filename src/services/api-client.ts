@@ -175,7 +175,7 @@ export const walletApi = {
   },
 
   getBalance: async (): Promise<ApiResponse<any>> => {
-    return fetchApi("/wallet", { requiresAuth: true });
+    return fetchApi("/wallet/balance", { requiresAuth: true });
   },
 
   deposit: async (data: {

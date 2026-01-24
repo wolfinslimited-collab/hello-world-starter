@@ -57,7 +57,7 @@ export const useWallet = (force = true) => {
   const fetchWallet = () => {
     if (isLoged) {
       setLoading(true);
-      get("wallet", { token }).then((res: any) => {
+      get("wallet/balance", { token }).then((res: any) => {
         setLoading(false);
         if (res?.success) {
           setApp({ wallet: res?.data });
