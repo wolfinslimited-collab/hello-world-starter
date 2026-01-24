@@ -11,7 +11,7 @@ const TokenLoader = () => {
   useEffect(() => {
     if (!tokens.length) {
       const fetchTokens = async () => {
-        const res: any = await get("tokens/list");
+        const res: any = await get("tokens");
 
         if (res?.success) {
           setMemory({ tokens: res.data?.tokens ?? [] });
