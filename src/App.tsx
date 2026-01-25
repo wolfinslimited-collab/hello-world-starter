@@ -1,4 +1,4 @@
-// Application entry point - v2
+// Application entry point - v3
 import { LangLoader } from "components/common/language";
 import { lazy, Suspense, useEffect } from "react";
 import PreLoading from "components/layouts/pre-loading";
