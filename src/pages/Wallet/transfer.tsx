@@ -364,7 +364,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
                     type="number"
                     rightElement={
                       <div className="flex items-center gap-2">
-                        {isWalletConnected && blockchainBalance && (
+                        {blockchainBalance && parseFloat(blockchainBalance) > 0 && (
                           <button
                             onClick={() => setAmount(blockchainBalance)}
                             className="text-xs font-bold text-emerald-500 hover:text-emerald-400 transition-colors"
@@ -377,23 +377,28 @@ const Transfer = ({ modalType, asset, close }: any) => {
                     }
                     helperText={`Min Deposit: ${(selectedNetConfig as any).min_deposit ?? selectedNetConfig.minDeposit ?? 0} ${asset.symbol}`}
                     error={isBlockchainBalanceInsufficient ? "Insufficient wallet balance" : ""}
-                    bottomElement={
-                      isWalletConnected && (
-                        <div className="flex items-center gap-2 px-1 mt-1">
-                          <span className="text-[10px] text-neutral-400">
-                            Wallet Balance:
-                          </span>
-                          {loadingBalance ? (
-                            <Loader2 className="size-3 animate-spin text-neutral-400" />
-                          ) : (
-                            <span className="text-[10px] font-semibold text-emerald-400">
-                              {blockchainBalance ?? "N/A"} {asset.symbol}
-                            </span>
-                          )}
-                        </div>
-                      )
-                    }
                   />
+                  
+                  {/* Always show blockchain balance section under amount input */}
+                  <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900/50 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                        Wallet Balance
+                      </span>
+                      {!isWalletConnected ? (
+                        <span className="text-xs text-neutral-400">Connect wallet to view</span>
+                      ) : loadingBalance ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="size-3 animate-spin text-neutral-400" />
+                          <span className="text-xs text-neutral-400">Loading...</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-semibold text-emerald-500">
+                          {blockchainBalance ?? "0.00"} {asset.symbol}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </>
               ) : (
                 /* WITHDRAW SECTION */
