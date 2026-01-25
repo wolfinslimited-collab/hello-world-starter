@@ -1,4 +1,4 @@
-// Application entry point - v4 (deposit flow)
+// Application entry point - v5 (deposit validation)
 import { LangLoader } from "components/common/language";
 import { lazy, Suspense, useEffect } from "react";
 import PreLoading from "components/layouts/pre-loading";
