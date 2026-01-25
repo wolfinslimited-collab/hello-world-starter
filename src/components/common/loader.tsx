@@ -36,11 +36,14 @@ const Loader = ({ children }: { children: any }) => {
 
   const get_token = async () => {
     const res: any = await get("tokens");
+    console.log("[Loader] Token API response:", res);
     if (res?.success) {
       // Store airdrop token list in memory (for token listing pages)
       const tokensList = res?.tokens || res?.data?.tokens || [];
-      console.log("[Loader] Tokens loaded:", tokensList.length, "items");
+      console.log("[Loader] Tokens loaded and cached:", tokensList.length, "items", tokensList);
       setMemory({ tokens: tokensList });
+    } else {
+      console.warn("[Loader] Failed to load tokens:", res?.error);
     }
   };
   useEffect(() => {
