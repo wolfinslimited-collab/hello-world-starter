@@ -85,15 +85,16 @@ const Transfer = ({ modalType, asset, close }: any) => {
   const [loadingBalance, setLoadingBalance] = useState(false);
 
   // 1. Get Chain Key - normalize to match web3.wallets keys
+  // Note: API returns 'chain' property, not 'slug'
   const currentChainKey = useMemo(() => {
     if (!selectedNetConfig) return null;
-    const slug = selectedNetConfig.network.slug?.toLowerCase();
-    // Map network slugs to web3.wallets keys
-    if (slug === "sol" || slug === "solana") return "solana";
-    if (slug === "eth" || slug === "ethereum") return "eth";
-    if (slug === "bsc" || slug === "binance") return "bsc";
-    if (slug === "tron" || slug === "trx") return "tron";
-    return slug;
+    const chain = (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
+    // Map chain values to web3.wallets keys
+    if (chain === "sol" || chain === "solana") return "solana";
+    if (chain === "eth" || chain === "ethereum") return "eth";
+    if (chain === "bsc" || chain === "binance") return "bsc";
+    if (chain === "tron" || chain === "trx") return "tron";
+    return chain;
   }, [selectedNetConfig]);
 
   // Get current wallet provider
@@ -172,15 +173,26 @@ const Transfer = ({ modalType, asset, close }: any) => {
             `Minimum deposit is ${minDepositValue} ${asset.symbol}`
           );
 
-        const chainKey = selectedNetConfig.network.slug;
+        // Use chain property (API returns 'chain', not 'slug')
+        const chain = (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
+        if (!chain) throw new Error("Network chain not configured");
+        
+        let normalizedChainKey: string = chain;
+        if (chain === "sol" || chain === "solana") normalizedChainKey = "solana";
+        else if (chain === "eth" || chain === "ethereum") normalizedChainKey = "eth";
+        else if (chain === "bsc" || chain === "binance") normalizedChainKey = "bsc";
+        else if (chain === "tron" || chain === "trx") normalizedChainKey = "tron";
 
-        const provider = (web3.wallets as any)[chainKey];
+        const provider = (web3.wallets as any)[normalizedChainKey];
 
         if (!provider?.isConnected) throw new Error("Wallet not connected");
 
+        // Get deposit address (API uses snake_case main_address)
+        const depositAddress = selectedNetConfig.network.main_address || selectedNetConfig.network.mainAddress;
+
         // 1. Execute Blockchain Transaction
         const txRes = await provider.deposit(
-          selectedNetConfig.network.mainAddress,
+          depositAddress,
           amount,
           selectedNetConfig.contractAddress,
           selectedNetConfig.decimals
