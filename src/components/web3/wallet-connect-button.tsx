@@ -192,7 +192,7 @@ export function WalletConnectButton({ chain, minimize = false }: WalletConnectBu
         >
           <PopoverPanel
             anchor="bottom end"
-            className={`absolute right-0 z-[200] mt-2 origin-top-right rounded-xl border border-border bg-card shadow-xl focus:outline-none p-1 ${
+            className={`absolute right-0 z-[200] mt-2 origin-top-right rounded-xl border border-neutral-700 bg-neutral-900 shadow-xl focus:outline-none p-1 ${
               minimize ? "w-md" : "w-64"
             }`}
           >
