@@ -73,7 +73,18 @@ export default function PortfolioAirdrops({ mini = false }: any) {
 
   // --- Totals ---
   const totalValue = processedTokens.reduce((acc, curr) => acc + curr.value, 0);
-  if (user?.status === "Pending") return null;
+  if (user?.status === "Pending") {
+    return (
+      <div className={"max-w-4xl mx-auto px-4 md:px-0 " + (mini ? "" : "pb-24 pt-6")}>
+        <div className="rounded-3xl border border-neutral-200 dark:border-white/10 bg-neutral-50/60 dark:bg-white/[0.02] p-8 text-center">
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-white">Portfolio</h1>
+          <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+            Your account is still pending activation, so balances aren’t available yet.
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className={

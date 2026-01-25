@@ -39,16 +39,18 @@ async function fetchApi<T>(
     method?: "GET" | "POST" | "PUT" | "DELETE";
     body?: any;
     requiresAuth?: boolean;
+    // Optional token override for legacy callers that manage token outside localStorage
+    token?: string;
   } = {}
 ): Promise<ApiResponse<T>> {
-  const { method = "GET", body, requiresAuth = false } = options;
+  const { method = "GET", body, requiresAuth = false, token: tokenOverride } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     apikey: SUPABASE_ANON_KEY,
   };
 
-  const token = getToken();
+  const token = tokenOverride || getToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   } else if (requiresAuth) {
@@ -316,10 +318,15 @@ export const get = async <T>(
 ): Promise<any> => {
   const result = await fetchApi<T>(path.startsWith("/") ? path : `/${path}`, {
     requiresAuth: !!opt?.token,
+    token: opt?.token,
   });
-  // Return the full response data spread with success flag for legacy compatibility
-  if (result.success && result.data) {
-    return { success: true, ...result.data };
+
+  // Legacy compatibility:
+  // - many callers expect `res.data`
+  // - some callers read fields directly from the response
+  if (result.success) {
+    const payload: any = result.data ?? {};
+    return { success: true, data: payload, ...payload };
   }
   return { success: false, error: result.error };
 };
@@ -333,6 +340,7 @@ export const json = async <T>(
     method: "POST",
     body,
     requiresAuth: !!opt?.token,
+    token: opt?.token,
   });
   
   // Return in legacy format for compatibility
