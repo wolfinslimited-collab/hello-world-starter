@@ -457,6 +457,33 @@ export const walletApi = {
   ): Promise<{ transaction: WalletTransaction; fee: number; finalAmount: number }> => {
     return fetchApi("/wallet/withdraw", { method: "POST", body: data, token });
   },
+
+  // New deposit flow endpoints
+  getDepositAddress: async (
+    assetId: number,
+    networkId: number,
+    token?: string
+  ): Promise<{
+    address: string;
+    network: string;
+    chain: string;
+    asset: string;
+    minDeposit: number;
+    contractAddress: string | null;
+  }> => {
+    return fetchApi(`/wallet/deposit-address?assetId=${assetId}&networkId=${networkId}`, { token });
+  },
+
+  verifyDeposit: async (
+    data: {
+      txSignature: string;
+      networkId?: number;
+      assetId?: number;
+    },
+    token?: string
+  ): Promise<{ status: string; amount?: number; assetSymbol?: string; transaction?: WalletTransaction }> => {
+    return fetchApi("/wallet/verify-deposit", { method: "POST", body: data, token });
+  },
 };
 
 // ==================== TRADING API ====================
