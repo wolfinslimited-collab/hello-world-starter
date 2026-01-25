@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
-import { get } from "utils/request";
+import { useState, useMemo } from "react";
 import useStorage from "context";
 import { Link } from "react-router-dom";
 import {
@@ -15,7 +14,7 @@ import PortfolioCard from "./portfolio";
 import { useGetData, useWallet } from "hooks/use-query";
 import Modal from "components/specific/modal";
 import { toMoney } from "utils/helper";
-import PortfolioAirdrops from "pages/Portfolio";
+// PortfolioAirdrops removed - unused import causing circular dependency
 
 // Base: Structure, Typography, and Accessibility (Focus rings)
 const BUTTON_SMALL_BASE =
