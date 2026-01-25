@@ -161,9 +161,11 @@ const Transfer = ({ modalType, asset, close }: any) => {
       const numAmount = parseFloat(amount);
       if (isNaN(numAmount) || numAmount <= 0) throw new Error("Invalid amount");
       if (modalType === "deposit") {
-        if (numAmount < selectedNetConfig.minDeposit)
+        // Support both snake_case (API) and camelCase formats
+        const minDepositValue = (selectedNetConfig as any).min_deposit ?? selectedNetConfig.minDeposit ?? 0;
+        if (numAmount < minDepositValue)
           throw new Error(
-            `Minimum deposit is ${selectedNetConfig.minDeposit} ${asset.symbol}`
+            `Minimum deposit is ${minDepositValue} ${asset.symbol}`
           );
 
         const chainKey = selectedNetConfig.network.slug;
@@ -373,7 +375,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
                         <span className="font-bold">{asset.symbol}</span>
                       </div>
                     }
-                    helperText={`Min Deposit: ${selectedNetConfig.minDeposit} ${asset.symbol}`}
+                    helperText={`Min Deposit: ${(selectedNetConfig as any).min_deposit ?? selectedNetConfig.minDeposit ?? 0} ${asset.symbol}`}
                     error={isBlockchainBalanceInsufficient ? "Insufficient wallet balance" : ""}
                     bottomElement={
                       isWalletConnected && (
