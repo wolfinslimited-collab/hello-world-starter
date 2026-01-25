@@ -1,5 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// EdgeRuntime type declaration for background tasks
+declare const EdgeRuntime: {
+  waitUntil: (promise: Promise<any>) => void;
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -1337,6 +1342,89 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ==================== HELIUS WEBHOOK (DEPOSIT AUTO-DETECTION) ====================
+    if (path === "/webhook/helius" && method === "POST") {
+      console.log("Helius webhook received");
+      
+      try {
+        const payload = await req.json();
+        console.log("Helius payload:", JSON.stringify(payload).substring(0, 500));
+        
+        // Helius sends an array of transactions
+        const transactions = Array.isArray(payload) ? payload : [payload];
+        
+        for (const tx of transactions) {
+          await processHeliusTransaction(supabase, tx);
+        }
+        
+        return success({ processed: transactions.length });
+      } catch (webhookError: any) {
+        console.error("Helius webhook error:", webhookError);
+        return error(`Webhook processing failed: ${webhookError.message}`, 500);
+      }
+    }
+
+    // ==================== MANUAL DEPOSIT VERIFICATION ====================
+    if (path === "/wallet/verify-deposit" && method === "POST") {
+      const user = await getAuthUser(supabase, token!);
+      if (!user) return error("Unauthorized", 401);
+
+      const { txSignature, networkId, assetId } = await req.json();
+      
+      if (!txSignature) {
+        return error("Transaction signature is required");
+      }
+
+      try {
+        const result = await verifyAndProcessSolanaDeposit(supabase, user.id, txSignature, networkId, assetId);
+        return success(result);
+      } catch (verifyError: any) {
+        console.error("Deposit verification error:", verifyError);
+        return error(verifyError.message, 400);
+      }
+    }
+
+    // ==================== GET DEPOSIT ADDRESS ====================
+    if (path === "/wallet/deposit-address" && method === "GET") {
+      const user = await getAuthUser(supabase, token!);
+      if (!user) return error("Unauthorized", 401);
+
+      const networkId = url.searchParams.get("networkId");
+      const assetId = url.searchParams.get("assetId");
+
+      if (!networkId || !assetId) {
+        return error("networkId and assetId are required");
+      }
+
+      // Get asset network config
+      const { data: assetNetwork } = await supabase
+        .from("asset_networks")
+        .select("*, network:networks(*), asset:assets(*)")
+        .eq("asset_id", parseInt(assetId))
+        .eq("network_id", parseInt(networkId))
+        .maybeSingle();
+
+      if (!assetNetwork || !assetNetwork.can_deposit) {
+        return error("Deposits not supported for this asset/network");
+      }
+
+      // Return the main deposit address for this network
+      const depositAddress = assetNetwork.network?.main_address;
+      
+      if (!depositAddress) {
+        return error("Deposit address not configured for this network");
+      }
+
+      return success({ 
+        address: depositAddress,
+        network: assetNetwork.network?.name,
+        chain: assetNetwork.network?.chain,
+        asset: assetNetwork.asset?.symbol,
+        minDeposit: assetNetwork.min_deposit,
+        contractAddress: assetNetwork.contract_address
+      });
+    }
+
     // 404 for unknown routes
     return error("Not found", 404);
   } catch (err) {
@@ -1570,4 +1658,432 @@ async function multiplyBalances(supabase: any, userId: number, factor: number = 
   }
 
   await updateLeaderboard(supabase, userId, totalAdded);
+}
+
+// ==================== HELIUS & DEPOSIT HELPERS ====================
+
+// Supported token mints on Solana
+const SOLANA_TOKEN_MINTS: Record<string, { symbol: string; decimals: number }> = {
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": { symbol: "USDC", decimals: 6 },
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": { symbol: "USDT", decimals: 6 },
+};
+
+async function processHeliusTransaction(supabase: any, tx: any) {
+  console.log("Processing Helius transaction:", tx.signature);
+  
+  try {
+    // Extract relevant data from Helius webhook payload
+    const signature = tx.signature;
+    const type = tx.type;
+    
+    // We're interested in token transfers
+    if (type !== "TRANSFER" && type !== "TOKEN_TRANSFER") {
+      console.log(`Skipping non-transfer transaction: ${type}`);
+      return;
+    }
+
+    // Check if transaction already processed
+    const { data: existingTx } = await supabase
+      .from("wallet_transactions")
+      .select("id")
+      .eq("tx_id", signature)
+      .maybeSingle();
+
+    if (existingTx) {
+      console.log(`Transaction ${signature} already processed`);
+      return;
+    }
+
+    // Get our deposit addresses
+    const { data: networks } = await supabase
+      .from("networks")
+      .select("id, main_address, chain")
+      .eq("chain", "solana")
+      .eq("is_active", true);
+
+    if (!networks || networks.length === 0) {
+      console.log("No Solana network configured");
+      return;
+    }
+
+    const ourAddresses = new Set(networks.map((n: any) => n.main_address?.toLowerCase()).filter(Boolean));
+    
+    // Parse token transfers from Helius payload
+    const tokenTransfers = tx.tokenTransfers || [];
+    const nativeTransfers = tx.nativeTransfers || [];
+    
+    for (const transfer of tokenTransfers) {
+      const toAccount = transfer.toUserAccount?.toLowerCase();
+      
+      if (!ourAddresses.has(toAccount)) continue;
+      
+      const mint = transfer.mint;
+      const tokenInfo = SOLANA_TOKEN_MINTS[mint];
+      
+      if (!tokenInfo) {
+        console.log(`Unknown token mint: ${mint}`);
+        continue;
+      }
+      
+      const amount = transfer.tokenAmount || (transfer.rawTokenAmount?.tokenAmount / Math.pow(10, tokenInfo.decimals));
+      const fromAddress = transfer.fromUserAccount;
+      
+      console.log(`Detected ${tokenInfo.symbol} deposit: ${amount} from ${fromAddress}`);
+      
+      // Find the user by their linked wallet address
+      const { data: link } = await supabase
+        .from("links")
+        .select("user_id")
+        .eq("address", fromAddress)
+        .eq("chain", "SOLANA")
+        .maybeSingle();
+      
+      if (!link) {
+        console.log(`No user found for address ${fromAddress}, storing as pending`);
+        // Store as pending deposit for manual review
+        await supabase.from("wallet_transactions").insert({
+          user_id: 0, // System/pending
+          asset_id: await getAssetIdBySymbol(supabase, tokenInfo.symbol),
+          network_id: networks[0].id,
+          tx_id: signature,
+          amount,
+          from_address: fromAddress,
+          to_address: toAccount,
+          type: "Deposit",
+          status: "Pending",
+          memo: JSON.stringify({ requiresUserLink: true }),
+        });
+        continue;
+      }
+      
+      // Process the deposit
+      await processConfirmedDeposit(supabase, link.user_id, signature, tokenInfo.symbol, amount, fromAddress, networks[0].id);
+    }
+    
+    // Handle native SOL transfers
+    for (const transfer of nativeTransfers) {
+      const toAccount = transfer.toUserAccount?.toLowerCase();
+      
+      if (!ourAddresses.has(toAccount)) continue;
+      
+      const amount = transfer.amount / 1e9; // SOL has 9 decimals
+      const fromAddress = transfer.fromUserAccount;
+      
+      console.log(`Detected SOL deposit: ${amount} from ${fromAddress}`);
+      
+      const { data: link } = await supabase
+        .from("links")
+        .select("user_id")
+        .eq("address", fromAddress)
+        .eq("chain", "SOLANA")
+        .maybeSingle();
+      
+      if (!link) {
+        console.log(`No user found for SOL deposit from ${fromAddress}`);
+        continue;
+      }
+      
+      await processConfirmedDeposit(supabase, link.user_id, signature, "SOL", amount, fromAddress, networks[0].id);
+    }
+  } catch (err: any) {
+    console.error("Error processing Helius transaction:", err);
+    throw err;
+  }
+}
+
+async function getAssetIdBySymbol(supabase: any, symbol: string): Promise<number | null> {
+  const { data: asset } = await supabase
+    .from("assets")
+    .select("id")
+    .eq("symbol", symbol)
+    .maybeSingle();
+  return asset?.id || null;
+}
+
+async function processConfirmedDeposit(
+  supabase: any, 
+  userId: number, 
+  txSignature: string, 
+  assetSymbol: string, 
+  amount: number, 
+  fromAddress: string,
+  networkId: number
+) {
+  console.log(`Processing confirmed deposit for user ${userId}: ${amount} ${assetSymbol}`);
+  
+  const assetId = await getAssetIdBySymbol(supabase, assetSymbol);
+  if (!assetId) {
+    throw new Error(`Asset ${assetSymbol} not found`);
+  }
+  
+  // Get asset network for minimum deposit check
+  const { data: assetNetwork } = await supabase
+    .from("asset_networks")
+    .select("*, network:networks(*)")
+    .eq("asset_id", assetId)
+    .eq("network_id", networkId)
+    .maybeSingle();
+
+  if (!assetNetwork) {
+    throw new Error(`Asset network config not found for ${assetSymbol}`);
+  }
+
+  if (amount < assetNetwork.min_deposit) {
+    console.log(`Deposit ${amount} below minimum ${assetNetwork.min_deposit}`);
+    // Still record but mark as below minimum
+    await supabase.from("wallet_transactions").insert({
+      user_id: userId,
+      asset_id: assetId,
+      network_id: networkId,
+      tx_id: txSignature,
+      amount,
+      from_address: fromAddress,
+      to_address: assetNetwork.network?.main_address,
+      type: "Deposit",
+      status: "BelowMinimum",
+      memo: JSON.stringify({ minRequired: assetNetwork.min_deposit }),
+    });
+    return { status: "below_minimum", minRequired: assetNetwork.min_deposit };
+  }
+
+  // Credit user's wallet
+  const walletResult = await modifyWallet(supabase, userId, amount, { assetId });
+  if (!walletResult.success) {
+    throw new Error(`Failed to credit wallet: ${walletResult.error}`);
+  }
+
+  // Create transaction record
+  await supabase.from("wallet_transactions").insert({
+    user_id: userId,
+    asset_id: assetId,
+    network_id: networkId,
+    tx_id: txSignature,
+    amount,
+    from_address: fromAddress,
+    to_address: assetNetwork.network?.main_address,
+    type: "Deposit",
+    status: "Completed",
+  });
+
+  console.log(`Deposit completed: ${amount} ${assetSymbol} credited to user ${userId}`);
+
+  // Forward funds to AsterDEX (in background)
+  EdgeRuntime.waitUntil(forwardToAsterDex(assetSymbol, amount, txSignature));
+
+  // Check and activate referral bonus
+  const { data: referral } = await supabase
+    .from("referrals")
+    .select("*")
+    .eq("referee_id", userId)
+    .eq("status", false)
+    .maybeSingle();
+
+  if (referral) {
+    await supabase
+      .from("referrals")
+      .update({ status: true })
+      .eq("id", referral.id);
+
+    // Add referral bonus to both users
+    await addStaticAmount(supabase, referral.referrer_id, 50);
+    await addStaticAmount(supabase, userId, 50);
+  }
+
+  return { status: "completed", amount, assetSymbol };
+}
+
+async function verifyAndProcessSolanaDeposit(
+  supabase: any, 
+  userId: number, 
+  txSignature: string,
+  networkId?: number,
+  assetId?: number
+) {
+  console.log(`Verifying Solana deposit: ${txSignature} for user ${userId}`);
+  
+  const heliusApiKey = Deno.env.get("HELIUS_API_KEY");
+  if (!heliusApiKey) {
+    throw new Error("Helius API key not configured");
+  }
+
+  // Check if transaction already processed
+  const { data: existingTx } = await supabase
+    .from("wallet_transactions")
+    .select("*")
+    .eq("tx_id", txSignature)
+    .maybeSingle();
+
+  if (existingTx) {
+    if (existingTx.user_id === userId) {
+      return { status: "already_processed", transaction: existingTx };
+    }
+    throw new Error("Transaction already processed for another user");
+  }
+
+  // Get user's Solana address
+  const { data: userLink } = await supabase
+    .from("links")
+    .select("address")
+    .eq("user_id", userId)
+    .eq("chain", "SOLANA")
+    .maybeSingle();
+
+  if (!userLink) {
+    throw new Error("No Solana wallet linked to this account");
+  }
+
+  // Fetch transaction details from Helius
+  const response = await fetch(`https://api.helius.xyz/v0/transactions/?api-key=${heliusApiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transactions: [txSignature] }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Helius API error: ${response.status}`);
+  }
+
+  const [txData] = await response.json();
+  
+  if (!txData) {
+    throw new Error("Transaction not found or not confirmed yet");
+  }
+
+  console.log("Helius transaction data:", JSON.stringify(txData).substring(0, 500));
+
+  // Get our deposit addresses
+  const { data: networks } = await supabase
+    .from("networks")
+    .select("id, main_address, chain")
+    .eq("chain", "solana")
+    .eq("is_active", true);
+
+  if (!networks || networks.length === 0) {
+    throw new Error("No Solana network configured");
+  }
+
+  const ourAddresses = new Set(networks.map((n: any) => n.main_address?.toLowerCase()).filter(Boolean));
+  const targetNetworkId = networkId || networks[0].id;
+
+  // Check token transfers
+  const tokenTransfers = txData.tokenTransfers || [];
+  
+  for (const transfer of tokenTransfers) {
+    const toAccount = transfer.toUserAccount?.toLowerCase();
+    const fromAccount = transfer.fromUserAccount?.toLowerCase();
+    
+    // Verify this is from the user's wallet to our address
+    if (!ourAddresses.has(toAccount)) continue;
+    if (fromAccount !== userLink.address.toLowerCase()) continue;
+    
+    const mint = transfer.mint;
+    const tokenInfo = SOLANA_TOKEN_MINTS[mint];
+    
+    if (!tokenInfo) {
+      console.log(`Unknown token mint: ${mint}`);
+      continue;
+    }
+    
+    const amount = transfer.tokenAmount || (transfer.rawTokenAmount?.tokenAmount / Math.pow(10, tokenInfo.decimals));
+    
+    console.log(`Verified ${tokenInfo.symbol} deposit: ${amount}`);
+    
+    return await processConfirmedDeposit(
+      supabase, 
+      userId, 
+      txSignature, 
+      tokenInfo.symbol, 
+      amount, 
+      userLink.address,
+      targetNetworkId
+    );
+  }
+
+  // Check native SOL transfers
+  const nativeTransfers = txData.nativeTransfers || [];
+  
+  for (const transfer of nativeTransfers) {
+    const toAccount = transfer.toUserAccount?.toLowerCase();
+    const fromAccount = transfer.fromUserAccount?.toLowerCase();
+    
+    if (!ourAddresses.has(toAccount)) continue;
+    if (fromAccount !== userLink.address.toLowerCase()) continue;
+    
+    const amount = transfer.amount / 1e9;
+    
+    console.log(`Verified SOL deposit: ${amount}`);
+    
+    return await processConfirmedDeposit(
+      supabase, 
+      userId, 
+      txSignature, 
+      "SOL", 
+      amount, 
+      userLink.address,
+      targetNetworkId
+    );
+  }
+
+  throw new Error("No valid deposit found in transaction");
+}
+
+async function forwardToAsterDex(assetSymbol: string, amount: number, txSignature: string) {
+  const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+  const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+  
+  if (!apiKey || !apiSecret) {
+    console.log("AsterDEX credentials not configured, skipping forward");
+    return;
+  }
+
+  console.log(`Forwarding ${amount} ${assetSymbol} to AsterDEX...`);
+
+  try {
+    // Generate timestamp and signature for AsterDEX API
+    const timestamp = Date.now().toString();
+    const message = `${timestamp}POST/api/v1/deposit`;
+    
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(apiSecret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+    const signatureHex = Array.from(new Uint8Array(signature))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    // AsterDEX deposit notification
+    // Note: Actual implementation depends on AsterDEX's API specification
+    const response = await fetch("https://api.asterdex.com/api/v1/deposit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-KEY": apiKey,
+        "X-TIMESTAMP": timestamp,
+        "X-SIGNATURE": signatureHex,
+      },
+      body: JSON.stringify({
+        asset: assetSymbol,
+        amount: amount,
+        txId: txSignature,
+        network: "SOLANA",
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`AsterDEX forward failed: ${response.status} - ${errorText}`);
+      return;
+    }
+
+    const result = await response.json();
+    console.log("AsterDEX forward result:", result);
+  } catch (err: any) {
+    console.error("AsterDEX forward error:", err.message);
+    // Don't throw - this runs in background and shouldn't fail the deposit
+  }
 }
