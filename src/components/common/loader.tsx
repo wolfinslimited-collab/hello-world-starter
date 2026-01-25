@@ -39,6 +39,7 @@ const Loader = ({ children }: { children: any }) => {
     if (res?.success) {
       // Store airdrop token list in memory (for token listing pages)
       const tokensList = res?.tokens || res?.data?.tokens || [];
+      console.log("[Loader] Tokens loaded:", tokensList.length, "items");
       setMemory({ tokens: tokensList });
     }
   };
