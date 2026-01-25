@@ -129,12 +129,22 @@ const Transfer = ({ modalType, asset, close }: any) => {
     return isAnyWalletConnected && !isWalletConnected;
   }, [expectedActiveChain, isAnyWalletConnected, isWalletConnected]);
 
-  // Fetch blockchain balance when wallet is connected
+  // Fetch blockchain balance ONCE when wallet connects or network changes
+  // Using a ref to prevent multiple calls
+  const balanceFetchedRef = React.useRef<string | null>(null);
+  
   useEffect(() => {
     const fetchBlockchainBalance = async () => {
       if (!isWalletConnected || !currentWallet || !selectedNetConfig) {
         setBlockchainBalance(null);
+        balanceFetchedRef.current = null;
         return;
+      }
+
+      // Create a unique key for this wallet + network combo to prevent duplicate fetches
+      const fetchKey = `${currentWallet.address}-${selectedNetConfig.id}`;
+      if (balanceFetchedRef.current === fetchKey) {
+        return; // Already fetched for this combo
       }
 
       setLoadingBalance(true);
@@ -172,9 +182,11 @@ const Transfer = ({ modalType, asset, close }: any) => {
           }
         } else {
           // For EVM chains, we would need to add balance fetching logic
-          // For now, show N/A
           setBlockchainBalance(null);
         }
+        
+        // Mark this combo as fetched
+        balanceFetchedRef.current = fetchKey;
       } catch (err) {
         console.error("Error fetching blockchain balance:", err);
         setBlockchainBalance(null);
@@ -184,7 +196,8 @@ const Transfer = ({ modalType, asset, close }: any) => {
     };
 
     fetchBlockchainBalance();
-  }, [isWalletConnected, currentWallet, selectedNetConfig, currentChainKey, connection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWalletConnected, currentWallet?.address, selectedNetConfig?.id, currentChainKey]);
 
   const handleTransaction = async () => {
     if (!selectedNetConfig || !asset) return;
@@ -222,12 +235,18 @@ const Transfer = ({ modalType, asset, close }: any) => {
         // Get deposit address (API uses snake_case main_address)
         const depositAddress = selectedNetConfig.network.main_address || selectedNetConfig.network.mainAddress;
 
-        // 1. Execute Blockchain Transaction
+        // Get token contract address - support both camelCase and snake_case from API
+        const tokenContractAddress = selectedNetConfig.contractAddress || 
+          (selectedNetConfig as any).contract_address || null;
+        const tokenDecimals = selectedNetConfig.decimals || 
+          (selectedNetConfig as any).decimals || 6;
+
+        // 1. Execute Blockchain Transaction (pass token address for SPL/ERC20 transfers)
         const txRes = await provider.deposit(
           depositAddress,
           amount,
-          selectedNetConfig.contractAddress,
-          selectedNetConfig.decimals
+          tokenContractAddress,  // This will be the USDC mint address for SPL tokens
+          tokenDecimals
         );
 
         if (!txRes.success)
