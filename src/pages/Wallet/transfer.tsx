@@ -139,23 +139,34 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
       setLoadingBalance(true);
       try {
+        // Get token contract address - support both camelCase and snake_case from API
+        const tokenContractAddress = selectedNetConfig.contractAddress || 
+          (selectedNetConfig as any).contract_address || null;
+        
+        // Get decimals (default to 6 for stablecoins, 9 for native)
+        const tokenDecimals = selectedNetConfig.decimals || 
+          (selectedNetConfig as any).decimals || 6;
+
         // For Solana
         if (currentChainKey === "solana" && currentWallet.address) {
           const pubKey = new PublicKey(currentWallet.address);
           
-          if (selectedNetConfig.contractAddress) {
-            // SPL Token balance
-            const mintKey = new PublicKey(selectedNetConfig.contractAddress);
+          if (tokenContractAddress) {
+            // SPL Token balance (USDC, USDT, etc.)
+            console.log("Fetching SPL token balance for:", tokenContractAddress);
+            const mintKey = new PublicKey(tokenContractAddress);
             try {
               const tokenAccount = await getAssociatedTokenAddress(mintKey, pubKey);
               const accountInfo = await getAccount(connection, tokenAccount);
-              const balance = Number(accountInfo.amount) / Math.pow(10, selectedNetConfig.decimals);
-              setBlockchainBalance(balance.toFixed(selectedNetConfig.decimals > 4 ? 4 : selectedNetConfig.decimals));
-            } catch {
+              const balance = Number(accountInfo.amount) / Math.pow(10, tokenDecimals);
+              setBlockchainBalance(balance.toFixed(tokenDecimals > 4 ? 4 : tokenDecimals));
+            } catch (e) {
+              console.log("Token account not found or empty:", e);
               setBlockchainBalance("0.00");
             }
           } else {
-            // Native SOL balance
+            // Native SOL balance (no contract address)
+            console.log("Fetching native SOL balance");
             const balance = await connection.getBalance(pubKey);
             setBlockchainBalance((balance / 1e9).toFixed(4));
           }
