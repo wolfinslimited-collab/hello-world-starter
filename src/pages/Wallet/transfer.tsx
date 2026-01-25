@@ -103,10 +103,31 @@ const Transfer = ({ modalType, asset, close }: any) => {
     return (web3.wallets as any)[currentChainKey] || null;
   }, [currentChainKey, web3.wallets]);
 
-  // 2. Check Wallet Connection - check directly from currentWallet
+  // Determine whether *any* wallet is connected (even if on the wrong network)
+  const isAnyWalletConnected = web3?.isConnected === true;
+
+  // What chain do we expect, based on the selected deposit network?
+  const expectedActiveChain = useMemo(() => {
+    if (!currentChainKey) return null;
+    if (currentChainKey === "solana") return "SOLANA";
+    if (currentChainKey === "tron") return "TRON";
+    if (currentChainKey === "eth") return "ETH";
+    if (currentChainKey === "bsc") return "BSC";
+    return null;
+  }, [currentChainKey]);
+
+  // 2. Check Wallet Connection
+  // IMPORTANT: for EVM wallets, your useWeb3 marks eth/bsc as connected ONLY when chain.id matches.
+  // If the user is connected on a different EVM chain, we should show "Switch network" instead of "Connect".
   const isWalletConnected = useMemo(() => {
-    return currentWallet?.isConnected === true;
-  }, [currentWallet]);
+    if (!expectedActiveChain) return false;
+    return web3?.activeChain === expectedActiveChain;
+  }, [expectedActiveChain, web3?.activeChain]);
+
+  const needsNetworkSwitch = useMemo(() => {
+    if (!expectedActiveChain) return false;
+    return isAnyWalletConnected && !isWalletConnected;
+  }, [expectedActiveChain, isAnyWalletConnected, isWalletConnected]);
 
   // Fetch blockchain balance when wallet is connected
   useEffect(() => {
@@ -401,8 +422,12 @@ const Transfer = ({ modalType, asset, close }: any) => {
                       <span className="text-xs text-neutral-500 dark:text-neutral-400">
                         Wallet Balance
                       </span>
-                      {!isWalletConnected ? (
-                        <span className="text-xs text-neutral-400">Connect wallet to view</span>
+                       {!expectedActiveChain ? (
+                         <span className="text-xs text-neutral-400">Unsupported network</span>
+                       ) : !isAnyWalletConnected ? (
+                         <span className="text-xs text-neutral-400">Connect wallet to view</span>
+                       ) : needsNetworkSwitch ? (
+                         <span className="text-xs text-neutral-400">Switch to {expectedActiveChain} to view</span>
                       ) : loadingBalance ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="size-3 animate-spin text-neutral-400" />
@@ -479,7 +504,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
                 <button
                   onClick={handleTransaction}
                   disabled={
-                    !isWalletConnected ||
+                     !isWalletConnected ||
                     status === "processing" ||
                     status === "success" ||
                     !amount ||
@@ -493,8 +518,12 @@ const Transfer = ({ modalType, asset, close }: any) => {
                       <Loader2 className="size-4 animate-spin" />
                       Processing...
                     </>
-                  ) : !isWalletConnected ? (
-                    "Connect Wallet First"
+                   ) : !expectedActiveChain ? (
+                     "Unsupported Network"
+                   ) : !isAnyWalletConnected ? (
+                     "Connect Wallet First"
+                   ) : needsNetworkSwitch ? (
+                     `Switch to ${expectedActiveChain}`
                   ) : !amount || parseFloat(amount || "0") <= 0 ? (
                     "Enter Amount"
                   ) : (
