@@ -1,4 +1,4 @@
-// Application entry point - v7 (preview rebuild trigger)
+// Application entry point - v8 (preview rebuild trigger)
 import { LangLoader } from "components/common/language";
 import { lazy, Suspense, useEffect } from "react";
 import PreLoading from "components/layouts/pre-loading";
