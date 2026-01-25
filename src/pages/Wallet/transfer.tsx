@@ -1,11 +1,14 @@
 import React, { useState, useMemo, lazy, Suspense, useEffect } from "react";
 import useStorage from "context";
-import { Check, AlertCircle } from "lucide-react";
+import { Check, AlertCircle, Loader2 } from "lucide-react";
 import { clsx } from "clsx";
 import { useWeb3 } from "components/web3/use-web3";
 import { json } from "utils/request";
 import { useWallet } from "hooks/use-query";
 import { AssetNetworkConfig } from ".";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddress, getAccount } from "@solana/spl-token";
 
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
 
@@ -21,6 +24,7 @@ const InputGroup = ({
   type = "text",
   helperText,
   error,
+  bottomElement,
 }: any) => (
   <div className="space-y-1.5">
     <label className="pl-1 text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
@@ -55,6 +59,7 @@ const InputGroup = ({
         </span>
       )}
     </div>
+    {bottomElement}
   </div>
 );
 
@@ -64,6 +69,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
   } = useStorage();
 
   const web3 = useWeb3();
+  const { connection } = useConnection();
   const { fetchWallet } = useWallet(false);
   const [selectedNetConfig, setSelectedNetConfig] =
     useState<AssetNetworkConfig | null>(null);
@@ -73,6 +79,75 @@ const Transfer = ({ modalType, asset, close }: any) => {
     "idle" | "processing" | "success" | "error"
   >("idle");
   const [feedback, setFeedback] = useState("");
+  
+  // Blockchain balance state
+  const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
+
+  // 1. Get Chain Key
+  const currentChainKey = useMemo(() => {
+    if (!selectedNetConfig) return null;
+    const slug = selectedNetConfig.network.slug;
+    return slug;
+  }, [selectedNetConfig]);
+
+  // 2. Check Wallet Connection
+  const isWalletConnected = useMemo(() => {
+    if (!currentChainKey || !web3.wallets) return false;
+    return (web3.wallets as any)[currentChainKey]?.isConnected;
+  }, [currentChainKey, web3.wallets]);
+
+  // Get current wallet provider
+  const currentWallet = useMemo(() => {
+    if (!currentChainKey || !web3.wallets) return null;
+    return (web3.wallets as any)[currentChainKey];
+  }, [currentChainKey, web3.wallets]);
+
+  // Fetch blockchain balance when wallet is connected
+  useEffect(() => {
+    const fetchBlockchainBalance = async () => {
+      if (!isWalletConnected || !currentWallet || !selectedNetConfig) {
+        setBlockchainBalance(null);
+        return;
+      }
+
+      setLoadingBalance(true);
+      try {
+        // For Solana
+        if (currentChainKey === "solana" && currentWallet.address) {
+          const pubKey = new PublicKey(currentWallet.address);
+          
+          if (selectedNetConfig.contractAddress) {
+            // SPL Token balance
+            const mintKey = new PublicKey(selectedNetConfig.contractAddress);
+            try {
+              const tokenAccount = await getAssociatedTokenAddress(mintKey, pubKey);
+              const accountInfo = await getAccount(connection, tokenAccount);
+              const balance = Number(accountInfo.amount) / Math.pow(10, selectedNetConfig.decimals);
+              setBlockchainBalance(balance.toFixed(selectedNetConfig.decimals > 4 ? 4 : selectedNetConfig.decimals));
+            } catch {
+              setBlockchainBalance("0.00");
+            }
+          } else {
+            // Native SOL balance
+            const balance = await connection.getBalance(pubKey);
+            setBlockchainBalance((balance / 1e9).toFixed(4));
+          }
+        } else {
+          // For EVM chains, we would need to add balance fetching logic
+          // For now, show N/A
+          setBlockchainBalance(null);
+        }
+      } catch (err) {
+        console.error("Error fetching blockchain balance:", err);
+        setBlockchainBalance(null);
+      } finally {
+        setLoadingBalance(false);
+      }
+    };
+
+    fetchBlockchainBalance();
+  }, [isWalletConnected, currentWallet, selectedNetConfig, currentChainKey, connection]);
 
   const handleTransaction = async () => {
     if (!selectedNetConfig || !asset) return;
@@ -86,10 +161,10 @@ const Transfer = ({ modalType, asset, close }: any) => {
       const numAmount = parseFloat(amount);
       if (isNaN(numAmount) || numAmount <= 0) throw new Error("Invalid amount");
       if (modalType === "deposit") {
-        // if (numAmount < selectedNetConfig.minDeposit)
-        //   throw new Error(
-        //     `Minimum deposit is ${selectedNetConfig.minDeposit} ${asset.symbol}`
-        //   );
+        if (numAmount < selectedNetConfig.minDeposit)
+          throw new Error(
+            `Minimum deposit is ${selectedNetConfig.minDeposit} ${asset.symbol}`
+          );
 
         const chainKey = selectedNetConfig.network.slug;
 
@@ -115,7 +190,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
             txId: txRes.hash,
             amount: numAmount,
             assetId: Number(asset.id),
-            networkId: Number(selectedNetConfig.network.id), // Ensure this maps to your network ID
+            networkId: Number(selectedNetConfig.network.id),
             fromAddress: provider.address,
           },
           { token }
@@ -159,23 +234,9 @@ const Transfer = ({ modalType, asset, close }: any) => {
     } catch (e: any) {
       console.error(e);
       setStatus("error");
-      // Handle generic fetch errors or specific API errors
       setFeedback(e.message || "An unknown error occurred");
     }
   };
-
-  // 1. Get Chain Key
-  const currentChainKey = useMemo(() => {
-    if (!selectedNetConfig) return null;
-    const slug = selectedNetConfig.network.slug;
-    return slug;
-  }, [selectedNetConfig]);
-
-  // 2. Check Wallet Connection
-  const isWalletConnected = useMemo(() => {
-    if (!currentChainKey || !web3.wallets) return false;
-    return (web3.wallets as any)[currentChainKey]?.isConnected;
-  }, [currentChainKey, web3.wallets]);
 
   // 3. Check Withdrawal Balance
   const isBalanceInsufficient = useMemo(() => {
@@ -183,6 +244,13 @@ const Transfer = ({ modalType, asset, close }: any) => {
     const avail = asset.balance - asset.locked;
     return parseFloat(amount || "0") > avail;
   }, [amount, asset, modalType]);
+
+  // Check if deposit amount exceeds blockchain balance
+  const isBlockchainBalanceInsufficient = useMemo(() => {
+    if (!blockchainBalance || modalType !== "deposit") return false;
+    return parseFloat(amount || "0") > parseFloat(blockchainBalance);
+  }, [amount, blockchainBalance, modalType]);
+
   useEffect(() => {
     if (asset) {
       setSelectedNetConfig(
@@ -190,6 +258,14 @@ const Transfer = ({ modalType, asset, close }: any) => {
       );
     }
   }, [asset]);
+
+  // Reset amount when network changes
+  useEffect(() => {
+    setAmount("");
+    setStatus("idle");
+    setFeedback("");
+  }, [selectedNetConfig?.id]);
+
   return (
     <>
       <div className={asset ? "" : "py-4"}>
@@ -285,9 +361,36 @@ const Transfer = ({ modalType, asset, close }: any) => {
                     onChange={(e: any) => setAmount(e.target.value)}
                     type="number"
                     rightElement={
-                      <span className="font-bold">{asset.symbol}</span>
+                      <div className="flex items-center gap-2">
+                        {isWalletConnected && blockchainBalance && (
+                          <button
+                            onClick={() => setAmount(blockchainBalance)}
+                            className="text-xs font-bold text-emerald-500 hover:text-emerald-400 transition-colors"
+                          >
+                            MAX
+                          </button>
+                        )}
+                        <span className="font-bold">{asset.symbol}</span>
+                      </div>
                     }
-                    helperText={`Min Deposit: ${selectedNetConfig.minDeposit}`}
+                    helperText={`Min Deposit: ${selectedNetConfig.minDeposit} ${asset.symbol}`}
+                    error={isBlockchainBalanceInsufficient ? "Insufficient wallet balance" : ""}
+                    bottomElement={
+                      isWalletConnected && (
+                        <div className="flex items-center gap-2 px-1 mt-1">
+                          <span className="text-[10px] text-neutral-400">
+                            Wallet Balance:
+                          </span>
+                          {loadingBalance ? (
+                            <Loader2 className="size-3 animate-spin text-neutral-400" />
+                          ) : (
+                            <span className="text-[10px] font-semibold text-emerald-400">
+                              {blockchainBalance ?? "N/A"} {asset.symbol}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    }
                   />
                 </>
               ) : (
@@ -348,18 +451,53 @@ const Transfer = ({ modalType, asset, close }: any) => {
                 </div>
               )}
 
-              {/* MAIN ACTION BUTTON */}
-              {modalType === "deposit" && !isWalletConnected ? null : (
+              {/* MAIN ACTION BUTTON - Always show for deposit, with proper disabled state */}
+              {modalType === "deposit" ? (
+                <button
+                  onClick={handleTransaction}
+                  disabled={
+                    !isWalletConnected ||
+                    status === "processing" ||
+                    status === "success" ||
+                    !amount ||
+                    parseFloat(amount || "0") <= 0 ||
+                    isBlockchainBalanceInsufficient
+                  }
+                  className={BUTTON_PRIMARY_CLASSES}
+                >
+                  {status === "processing" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : !isWalletConnected ? (
+                    "Connect Wallet First"
+                  ) : !amount || parseFloat(amount || "0") <= 0 ? (
+                    "Enter Amount"
+                  ) : (
+                    `Deposit ${amount} ${asset.symbol}`
+                  )}
+                </button>
+              ) : (
                 <button
                   onClick={handleTransaction}
                   disabled={
                     status === "processing" ||
                     status === "success" ||
-                    (modalType === "withdraw" && isBalanceInsufficient)
+                    isBalanceInsufficient ||
+                    !amount ||
+                    !address
                   }
                   className={BUTTON_PRIMARY_CLASSES}
                 >
-                  {status === "processing" ? "Processing..." : "Confirm"}
+                  {status === "processing" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Confirm Withdrawal"
+                  )}
                 </button>
               )}
             </div>
