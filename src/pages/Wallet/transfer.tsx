@@ -84,24 +84,28 @@ const Transfer = ({ modalType, asset, close }: any) => {
   const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(false);
 
-  // 1. Get Chain Key
+  // 1. Get Chain Key - normalize to match web3.wallets keys
   const currentChainKey = useMemo(() => {
     if (!selectedNetConfig) return null;
-    const slug = selectedNetConfig.network.slug;
+    const slug = selectedNetConfig.network.slug?.toLowerCase();
+    // Map network slugs to web3.wallets keys
+    if (slug === "sol" || slug === "solana") return "solana";
+    if (slug === "eth" || slug === "ethereum") return "eth";
+    if (slug === "bsc" || slug === "binance") return "bsc";
+    if (slug === "tron" || slug === "trx") return "tron";
     return slug;
   }, [selectedNetConfig]);
-
-  // 2. Check Wallet Connection
-  const isWalletConnected = useMemo(() => {
-    if (!currentChainKey || !web3.wallets) return false;
-    return (web3.wallets as any)[currentChainKey]?.isConnected;
-  }, [currentChainKey, web3.wallets]);
 
   // Get current wallet provider
   const currentWallet = useMemo(() => {
     if (!currentChainKey || !web3.wallets) return null;
-    return (web3.wallets as any)[currentChainKey];
+    return (web3.wallets as any)[currentChainKey] || null;
   }, [currentChainKey, web3.wallets]);
+
+  // 2. Check Wallet Connection - check directly from currentWallet
+  const isWalletConnected = useMemo(() => {
+    return currentWallet?.isConnected === true;
+  }, [currentWallet]);
 
   // Fetch blockchain balance when wallet is connected
   useEffect(() => {
