@@ -49,11 +49,14 @@ const CARD_CLASSES =
 export interface NetworkMetadata {
   id: number;
   name: string;
-  slug: string;
-  type: string;
+  chain: string; // API returns 'chain' (e.g., "solana", "eth", "bsc", "tron")
+  slug?: string; // Optional fallback
+  type?: string;
   logo: string;
-  mainAddress: string;
-  isActive: boolean;
+  mainAddress?: string;
+  main_address?: string; // API uses snake_case
+  isActive?: boolean;
+  is_active?: boolean; // API uses snake_case
 }
 
 export interface AssetNetworkConfig {
