@@ -49,7 +49,7 @@ const CARD_CLASSES =
 export interface NetworkMetadata {
   id: number;
   name: string;
-  chain: string; // API returns 'chain' (e.g., "solana", "eth", "bsc", "tron")
+  chain?: string; // API returns 'chain' (e.g., "solana", "eth", "bsc", "tron")
   slug?: string; // Optional fallback
   type?: string;
   logo: string;
