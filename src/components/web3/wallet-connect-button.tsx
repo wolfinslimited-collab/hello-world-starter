@@ -163,7 +163,7 @@ export function WalletConnectButton({ chain, minimize = false }: WalletConnectBu
           }`}
         >
           <div
-            className={`flex items-center gap-2 py-1.5 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-all shadow-sm ${
+            className={`flex items-center gap-2 py-1.5 px-3 rounded-xl border border-white/5 bg-neutral-900 hover:bg-neutral-800 transition-all shadow-sm ${
               minimize ? "w-full justify-between" : ""
             }`}
           >

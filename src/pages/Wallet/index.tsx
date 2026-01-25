@@ -22,17 +22,17 @@ const BUTTON_SMALL_BASE =
 
 // Deposit: Emerald Gradient + Glow + Lift
 export const BUTTON_SMALL_DEPOSIT = `${BUTTON_SMALL_BASE} 
-   text-black
-   bg-gradient-to-r from-emerald-300 to-teal-400
-   hover:from-emerald-400 hover:to-green-400
+   text-white
+   bg-gradient-to-r from-emerald-500 to-teal-600
+   hover:from-emerald-600 hover:to-teal-700
    border border-white/5
    active:scale-95 hover:-translate-y-0.5`;
 
 // Withdraw: Rose Gradient + Glow + Lift
 export const BUTTON_SMALL_WITHDRAW = `${BUTTON_SMALL_BASE}
-   text-black
-   bg-gradient-to-r from-red-300 to-rose-400
-   hover:from-rose-400 hover:to-red-400
+   text-white
+   bg-gradient-to-r from-red-500 to-rose-600
+   hover:from-rose-600 hover:to-red-700
    border border-white/5
    active:scale-95 hover:-translate-y-0.5`;
 
