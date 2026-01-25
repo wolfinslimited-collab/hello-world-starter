@@ -12,8 +12,9 @@ import { Play, Copy, Check, Cloud, CheckCircle, XCircle } from 'lucide-react';
 const ENDPOINTS = [
   { path: '/trade/pairs', method: 'GET', auth: false, description: 'Get trading pairs' },
   { path: '/tokens', method: 'GET', auth: false, description: 'Get airdrop tokens' },
-  { path: '/user/profile', method: 'GET', auth: true, description: 'Get user profile' },
+  { path: '/wallet/assets', method: 'GET', auth: true, description: 'Get wallet assets with networks' },
   { path: '/wallet/balance', method: 'GET', auth: true, description: 'Get wallet balances' },
+  { path: '/user/profile', method: 'GET', auth: true, description: 'Get user profile' },
   { path: '/missions', method: 'GET', auth: true, description: 'Get missions' },
   { path: '/user/leaderboards', method: 'GET', auth: false, description: 'Get leaderboards' },
 ];

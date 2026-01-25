@@ -112,10 +112,19 @@ const Wallet = () => {
     };
   }, [wallet]);
   const assets = useMemo(() => {
-    if (!Array.isArray(pureAssets)) return [];
+    // Handle both array and object formats from API
+    let assetList: any[] = [];
+    if (Array.isArray(pureAssets)) {
+      assetList = pureAssets;
+    } else if (pureAssets && typeof pureAssets === 'object') {
+      // API returns { "0": {...}, "1": {...}, success: true } - extract asset objects
+      assetList = Object.entries(pureAssets)
+        .filter(([key]) => !isNaN(Number(key)))
+        .map(([, value]) => value);
+    }
 
-    return pureAssets
-      .filter((a) => a.visible)
+    return assetList
+      .filter((a) => a?.visible)
       .map((asset) => {
         const w = wallet.find((w: any) => w.assetId === asset.id);
         return {
