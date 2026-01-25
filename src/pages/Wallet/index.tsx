@@ -86,11 +86,12 @@ export interface Asset {
 }
 
 const Wallet = () => {
-  const {
-    app: { wallet = [] },
-  } = useStorage();
+  const { app } = useStorage();
   useWallet();
   const { data: pureAssets, loading } = useGetData({ path: "wallet/assets" });
+
+  // Ensure wallet is always an array
+  const wallet = Array.isArray(app?.wallet) ? app.wallet : [];
 
   // Modal State
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
