@@ -1,0 +1,42 @@
+$scroll-primary: rgba(255, 255, 255, 0.5);
+$scroll-secondary: rgba(55, 55, 55, 1);
+* {
+  scrollbar-width: thin;
+  scrollbar-color: $scroll-secondary $scroll-primary;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: $scroll-primary;
+  border-radius: 5px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: $scroll-secondary;
+  border-radius: 4px;
+}
+
+@import url("https://fonts.googleapis.com/css2?family=Exo:wght@300;400;500;600;700&display=swap");
+html {
+  font-family: "Exo", sans-serif;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+#tv-attr-logo {
+  display: none !important;
+}
+#wcm-modal,
+wcm-modal {
+  z-index: 999999 !important;
+  position: absolute;
+}

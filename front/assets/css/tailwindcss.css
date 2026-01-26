@@ -1,0 +1,41 @@
+@import "tailwindcss";
+@import "tailwindcss-animated";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+html {
+  @apply bg-white text-black;
+}
+html.dark {
+  @apply bg-black text-white;
+}
+
+@theme {
+  --animate-text-pulse-green: text-pulse-green 0.6s ease-out;
+  --animate-text-pulse-red: text-pulse-red 0.6s ease-out;
+
+  @keyframes text-pulse-green {
+    0% {
+      color: #ffffff;
+      text-shadow: 0 0 15px #2ebd85;
+      transform: scale(1.02);
+    }
+    100% {
+      color: #2ebd85;
+      text-shadow: 0 0 0px transparent;
+      transform: scale(1);
+    }
+  }
+  @keyframes text-pulse-red {
+    0% {
+      color: #ffffff;
+      text-shadow: 0 0 15px #f6465d;
+      transform: scale(1.02);
+    }
+    100% {
+      color: #f6465d;
+      text-shadow: 0 0 0px transparent;
+      transform: scale(1);
+    }
+  }
+}
