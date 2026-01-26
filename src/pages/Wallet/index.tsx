@@ -89,7 +89,7 @@ export interface Asset {
 
 const Wallet = () => {
   const { app } = useStorage();
-  useWallet();
+   const { fetchWallet } = useWallet();
   const { data: pureAssets, loading } = useGetData({ path: "wallet/assets" });
 
   // Ensure wallet is always an array
@@ -308,7 +308,11 @@ const Wallet = () => {
       </div>
 
       <Modal open={!!modalType} onClose={closeModal}>
-        <Transfer asset={selectedAsset} modalType={modalType} />
+       <Transfer 
+         asset={selectedAsset} 
+         modalType={modalType}
+         onSuccess={fetchWallet}
+       />
       </Modal>
     </div>
   );
