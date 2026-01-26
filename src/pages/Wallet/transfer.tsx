@@ -63,7 +63,7 @@ const InputGroup = ({
   </div>
 );
 
-const Transfer = ({ modalType, asset, close }: any) => {
+ const Transfer = ({ modalType, asset, close, onSuccess }: any) => {
   const {
     setting: { token },
   } = useStorage();
@@ -267,6 +267,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
         if (apiRes.success) {
           fetchWallet();
+           onSuccess?.(); // Refresh parent wallet list too
           setFeedback(`Success! Ref: ${txRes.hash.slice(0, 8)}...`);
           setStatus("success");
           close?.();
