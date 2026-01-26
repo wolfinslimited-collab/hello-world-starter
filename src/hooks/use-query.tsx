@@ -60,7 +60,20 @@ export const useWallet = (force = true) => {
       get("wallet/balance", { token }).then((res: any) => {
         setLoading(false);
         if (res?.success) {
-          setApp({ wallet: res?.data });
+          // Transform object with numeric keys to array
+          let walletArray: any[] = [];
+          const walletData = res?.data || res;
+          
+          if (Array.isArray(walletData)) {
+            walletArray = walletData;
+          } else if (walletData && typeof walletData === 'object') {
+            // API returns { "0": {...}, "1": {...}, success: true }
+            walletArray = Object.entries(walletData)
+              .filter(([key]) => !isNaN(Number(key)))
+              .map(([, value]) => value);
+          }
+          
+          setApp({ wallet: walletArray });
         }
       });
     }

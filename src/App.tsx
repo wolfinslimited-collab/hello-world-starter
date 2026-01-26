@@ -1,4 +1,4 @@
- // Application entry point - v9 (preview rebuild trigger)
+ // Application entry point - v10 (wallet balance fix)
 import { LangLoader } from "components/common/language";
 import { lazy, Suspense, useEffect } from "react";
 import PreLoading from "components/layouts/pre-loading";
