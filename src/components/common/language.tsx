@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type React from "react";
 import i18next from "locales";
 import useStorage from "context";
 import Modal from "components/specific/modal";
