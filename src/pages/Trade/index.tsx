@@ -38,7 +38,20 @@ export default function Trade() {
       try {
         const res: any = await get("trade/pairs");
         if (res?.success) {
-          setApp({ pairs: res.data ?? [] });
+          // Transform object with numeric keys to array
+          let pairsArray: any[] = [];
+          const pairsData = res?.data || res;
+          
+          if (Array.isArray(pairsData)) {
+            pairsArray = pairsData;
+          } else if (pairsData && typeof pairsData === 'object') {
+            // API returns { "0": {...}, "1": {...}, success: true }
+            pairsArray = Object.entries(pairsData)
+              .filter(([key]) => !isNaN(Number(key)))
+              .map(([, value]) => value);
+          }
+          
+          setApp({ pairs: pairsArray });
         }
       } finally {
         setLoading(false);
