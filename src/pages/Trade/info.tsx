@@ -13,7 +13,7 @@ import {
 import { ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-import { get } from "utils/request";
+// Note: Using native fetch for external APIs (not get utility which routes through edge function)
 import useStorage from "context";
 import { useTradeStore } from "./component/store";
 import { formatNumber, toMoney } from "utils/helper";
@@ -43,11 +43,18 @@ export default function HeaderInfo() {
 
   /* ---------------- Fetch ticker ---------------- */
   const fetchTicker = async () => {
-    if (!symbol) return;
+    // Defensive check - ensure symbol and externalSymbol exist
+    if (!symbol?.externalSymbol) return;
+    
     try {
-      const res: Ticker24h = await get(
+      // Use native fetch for external API (not the get utility which routes through edge function)
+      const response = await fetch(
         `${BASE_API}/ticker/24hr?symbol=${symbol.externalSymbol}`
       );
+      if (!response.ok) {
+        throw new Error(`Ticker fetch failed: ${response.status}`);
+      }
+      const res: Ticker24h = await response.json();
       setTicker(res);
     } catch (error) {
       console.error("Failed to fetch ticker", error);
@@ -56,11 +63,13 @@ export default function HeaderInfo() {
 
   // Initial fetch and Polling every 10s to keep volume/rolling window fresh
   useEffect(() => {
+    if (!symbol?.externalSymbol) return;
+    
     fetchTicker();
 
     const interval = setInterval(fetchTicker, 10000);
     return () => clearInterval(interval);
-  }, [symbol]);
+  }, [symbol?.externalSymbol]);
 
   /* ---------------- Derived Real-time Stats ---------------- */
   // We calculate live stats based on the socket `lastPrice` vs the `ticker` snapshot
