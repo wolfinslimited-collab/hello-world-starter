@@ -129,7 +129,8 @@ const Wallet = () => {
     return assetList
       .filter((a) => a?.visible)
       .map((asset) => {
-        const w = wallet.find((w: any) => w.assetId === asset.id);
+        // Support both snake_case (API) and camelCase formats
+        const w = wallet.find((w: any) => (w.asset_id || w.assetId) === asset.id);
         return {
           ...asset,
           balance: w ? parseFloat(w.balance) : 0,
