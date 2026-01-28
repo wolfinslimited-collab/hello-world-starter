@@ -51,7 +51,8 @@ export default function ClaimButton({
     setting: { isLoged },
   } = useStorage();
 
-  const [status] = useState(getStatus(token.startsAt, token.endsAt));
+  // Support both snake_case (API) and camelCase property names
+  const [status] = useState(getStatus(token.starts_at || token.startsAt, token.ends_at || token.endsAt));
   const [timeLeft, setTimeLeft] = useState<string | null>(null);
   const [canClaim, setCanClaim] = useState(false);
 
@@ -168,7 +169,7 @@ export default function ClaimButton({
       <RewardPopup
         amount={rewardAmount}
         symbol={token.symbol}
-        logo={token.logoUrl}
+        logo={token.logo_url || token.logoUrl}
       />
     );
   }
