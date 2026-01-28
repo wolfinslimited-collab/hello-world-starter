@@ -28,7 +28,9 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    outDir: "./build",
+    // Lovable publishing expects the standard Vite output directory.
+    // Using a custom outDir can cause production build/publish to fail.
+    outDir: "dist",
     emptyOutDir: true,
   },
   server: {
