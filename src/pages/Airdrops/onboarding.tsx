@@ -1,3 +1,4 @@
+// Onboarding modal v2 - fixed response handling
 import React, { useState, useEffect } from "react";
 import {
   Zap,
