@@ -791,7 +791,11 @@ Deno.serve(async (req) => {
     if (path === "/trade/pairs" && method === "GET") {
       const { data: pairs } = await supabase
         .from("trading_pairs")
-        .select("*")
+        .select(`
+          *,
+          baseAsset:assets!trading_pairs_base_asset_id_fkey(*),
+          quoteAsset:assets!trading_pairs_quote_asset_id_fkey(*)
+        `)
         .eq("active", true);
 
       return success(pairs || []);
