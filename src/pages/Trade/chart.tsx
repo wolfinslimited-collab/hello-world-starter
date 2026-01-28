@@ -12,7 +12,7 @@ import { ChevronDown } from "lucide-react";
 import { Menu, Transition } from "@headlessui/react";
 import { useTradeStore } from "./component/store";
 import clsx from "clsx";
-import { get } from "utils/request";
+// Note: Using native fetch for external AsterDEX APIs (not get utility which routes through edge function)
 
 const TIMEFRAMES = [
   { label: "1m", value: "1m", seconds: 60 },
@@ -75,7 +75,11 @@ const Chart = () => {
         let url = `${BASE_API}/klines?symbol=${symbol.externalSymbol}&interval=${interval.value}&limit=500`;
         if (endTime) url += `&endTime=${endTime}`;
 
-        const json: any = await get(url);
+        // Use native fetch for external AsterDEX API
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Klines fetch failed: ${response.status}`);
+        const json: any = await response.json();
+        
         if (!Array.isArray(json) || json.length === 0) {
           setHasMore(false);
           return;
@@ -102,7 +106,7 @@ const Chart = () => {
         setLoading(false);
       }
     },
-    [symbol, interval, BASE_API, loading]
+    [symbol?.externalSymbol, interval, BASE_API, loading]
   );
 
   // --- Effects ---

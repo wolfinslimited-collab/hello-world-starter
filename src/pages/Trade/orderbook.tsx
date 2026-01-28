@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTradeStore } from "./component/store";
 import clsx from "clsx";
-import { get } from "utils/request";
+// Note: Using native fetch for external AsterDEX APIs (not get utility which routes through edge function)
 import { ArrowUpIcon, ChevronDownIcon } from "lucide-react";
 import {
   Menu,
@@ -200,8 +200,11 @@ export default function OrderBook() {
         const sym = symbol.externalSymbol?.toUpperCase();
         if (!sym) return;
 
-        // 1. Fetch Depth
-        const depthData: any = await get(`${BASE_API}/depth?symbol=${sym}`);
+        // 1. Fetch Depth (use native fetch for external API)
+        const depthResponse = await fetch(`${BASE_API}/depth?symbol=${sym}`);
+        if (!depthResponse.ok) throw new Error(`Depth fetch failed: ${depthResponse.status}`);
+        const depthData: any = await depthResponse.json();
+        
         bidsMap.current.clear();
         asksMap.current.clear();
 
@@ -218,10 +221,10 @@ export default function OrderBook() {
 
         processOrderBook();
 
-        // 2. Fetch Recent Trades
-        const tradesData: Trade[] = await get(
-          `${BASE_API}/aggTrades?symbol=${sym}&limit=${TRADE_HISTORY_SIZE}`
-        );
+        // 2. Fetch Recent Trades (use native fetch for external API)
+        const tradesResponse = await fetch(`${BASE_API}/aggTrades?symbol=${sym}&limit=${TRADE_HISTORY_SIZE}`);
+        if (!tradesResponse.ok) throw new Error(`Trades fetch failed: ${tradesResponse.status}`);
+        const tradesData: Trade[] = await tradesResponse.json();
 
         // Map API specific fields to our Trade type
         if (Array.isArray(tradesData)) {
