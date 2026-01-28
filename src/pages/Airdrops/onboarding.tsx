@@ -100,9 +100,14 @@ const OnboardingModal = ({
         setApp(res.data);
         setStep(2); // Move to success step
       } else {
-        toast.error(
-          res?.message || "Activation failed on server verification."
-        );
+        // Handle "already activated" gracefully - not an error
+        const errorMsg = res?.error || res?.message || "";
+        if (errorMsg.toLowerCase().includes("already activated")) {
+          toast.info("Your account is already activated!");
+          onClose();
+        } else {
+          toast.error(errorMsg || "Activation failed on server verification.");
+        }
       }
     });
   };
