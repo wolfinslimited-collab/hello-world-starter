@@ -193,23 +193,28 @@ export default function OrderBook() {
 
   /* ---------------- Initial Data Load ---------------- */
   useEffect(() => {
-    if (!symbol) return;
+    if (!symbol?.externalSymbol) return;
 
     const fetchSnapshot = async () => {
       try {
-        const sym = symbol.externalSymbol.toUpperCase();
+        const sym = symbol.externalSymbol?.toUpperCase();
+        if (!sym) return;
 
         // 1. Fetch Depth
         const depthData: any = await get(`${BASE_API}/depth?symbol=${sym}`);
         bidsMap.current.clear();
         asksMap.current.clear();
 
-        depthData.bids.forEach(([p, q]: string[]) =>
-          bidsMap.current.set(p, parseFloat(q))
-        );
-        depthData.asks.forEach(([p, q]: string[]) =>
-          asksMap.current.set(p, parseFloat(q))
-        );
+        if (depthData?.bids) {
+          depthData.bids.forEach(([p, q]: string[]) =>
+            bidsMap.current.set(p, parseFloat(q))
+          );
+        }
+        if (depthData?.asks) {
+          depthData.asks.forEach(([p, q]: string[]) =>
+            asksMap.current.set(p, parseFloat(q))
+          );
+        }
 
         processOrderBook();
 
@@ -219,19 +224,21 @@ export default function OrderBook() {
         );
 
         // Map API specific fields to our Trade type
-        const formattedTrades: Trade[] = tradesData
-          .map((t: any) => ({
-            id: t.a,
-            price: parseFloat(t.p),
-            qty: parseFloat(t.q),
-            time: t.T,
-            isBuyerMaker: t.m,
-          }))
-          .reverse(); // Newest first
+        if (Array.isArray(tradesData)) {
+          const formattedTrades: Trade[] = tradesData
+            .map((t: any) => ({
+              id: t.a,
+              price: parseFloat(t.p),
+              qty: parseFloat(t.q),
+              time: t.T,
+              isBuyerMaker: t.m,
+            }))
+            .reverse(); // Newest first
 
-        setTrades(formattedTrades);
-        if (formattedTrades.length > 0) {
-          setLastPrice(formattedTrades[0].price);
+          setTrades(formattedTrades);
+          if (formattedTrades.length > 0) {
+            setLastPrice(formattedTrades[0].price);
+          }
         }
       } catch (e) {
         console.error("Failed to load initial snapshot", e);
@@ -239,14 +246,16 @@ export default function OrderBook() {
     };
 
     fetchSnapshot();
-  }, [symbol]);
+  }, [symbol?.externalSymbol]);
 
   /* ---------------- WebSocket Logic ---------------- */
   useEffect(() => {
-    if (!symbol) return;
+    if (!symbol?.externalSymbol) return;
+
+    const symLower = symbol.externalSymbol?.toLowerCase();
+    if (!symLower) return;
 
     const ws = new WebSocket(WS_URL);
-    const symLower = symbol.externalSymbol.toLowerCase();
 
     ws.onopen = () => {
       const payload = {
@@ -411,8 +420,8 @@ export default function OrderBook() {
 
           {/* --- COLUMN HEADERS --- */}
           <div className="grid grid-cols-3 px-4 py-1 mb-1 text-neutral-700 dark:text-neutral-400 text-[10px] font-medium tracking-wide">
-            <div className="text-left">Price({symbol?.quote})</div>
-            <div className="text-right">Amount({symbol?.base})</div>
+            <div className="text-left">Price({symbol?.quote || '--'})</div>
+            <div className="text-right">Amount({symbol?.base || '--'})</div>
             <div className="text-right">Total</div>
           </div>
 
