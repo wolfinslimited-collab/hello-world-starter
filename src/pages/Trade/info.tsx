@@ -176,18 +176,21 @@ function PairDropdown({
     navigate(`/trade/${pair.type.toLowerCase()}/${pair.symbol}`);
   };
 
+  const baseLogo = symbol?.baseAsset?.logo || '/logo.png';
+  const quoteLogo = symbol?.quoteAsset?.logo || '/logo.png';
+
   return (
     <Menu as="div" className="relative text-black dark:text-white flex ">
       <MenuButton className="flex items-center gap-2 hover:bg-white/5 px-2 py-1 rounded">
         <div className="flex relative items-end">
-          <img src={symbol?.baseAsset.logo} className="w-10 min-w-10 rounded" />
-          <img src={symbol?.quoteAsset.logo} className=" h-6 min-h-6 -ms-3" />
+          <img src={baseLogo} className="w-10 min-w-10 rounded" alt={symbol?.base || 'Base'} />
+          <img src={quoteLogo} className="h-6 min-h-6 -ms-3" alt={symbol?.quote || 'Quote'} />
         </div>
 
         <div className="flex flex-col items-start ps-4">
-          <div className="font-semibold text-nowrap">{symbol?.symbol}</div>
+          <div className="font-semibold text-nowrap">{symbol?.symbol || '--'}</div>
           <div className="-mt-2">
-            <span className="text-[10px] bg-black/10 dark:bg-white/10  px-1 rounded">
+            <span className="text-[10px] bg-black/10 dark:bg-white/10 px-1 rounded">
               {symbol?.type === "PERPETUAL" ? "Perp" : "Spot"}
             </span>
           </div>
@@ -204,9 +207,9 @@ function PairDropdown({
         leaveFrom="opacity-100 scale-100"
         leaveTo="opacity-0 scale-95"
       >
-        <MenuItems className="absolute z-50 mt-14 w-[320px] rounded-md bg-black/5 dark:bg-white/5 backdrop-blur-xl shadow-md outline-none">
+        <MenuItems className="absolute z-50 mt-14 w-[320px] rounded-md bg-neutral-900 dark:bg-neutral-800 shadow-lg outline-none border border-white/10">
           <TabGroup>
-            <TabList className="flex border-b border-black/10 dark:border-white/10">
+            <TabList className="flex border-b border-white/10">
               <Tab className={tabClass}>Spot</Tab>
               <Tab className={tabClass}>Perpetual</Tab>
             </TabList>
@@ -233,6 +236,14 @@ function PairList({
   pairs: any[];
   onSelect: (p: any) => void;
 }) {
+  if (!pairs || pairs.length === 0) {
+    return (
+      <div className="p-4 text-center text-neutral-400 text-sm">
+        No pairs available
+      </div>
+    );
+  }
+
   return (
     <div className="max-h-[300px] overflow-y-auto">
       {pairs.map((p) => (
@@ -241,11 +252,15 @@ function PairList({
             <button
               onClick={() => onSelect(p)}
               className={`flex items-center gap-2 w-full px-3 py-2 text-sm ${
-                active ? "bg-white/5" : ""
+                active ? "bg-white/10" : ""
               }`}
             >
-              <img src={p.baseAsset.logo} className="size-5 rounded" />
-              <span>{p.symbol}</span>
+              <img 
+                src={p.baseAsset?.logo || '/logo.png'} 
+                className="size-5 rounded" 
+                alt={p.base || 'Asset'}
+              />
+              <span>{p.symbol || '--'}</span>
             </button>
           )}
         </Menu.Item>
