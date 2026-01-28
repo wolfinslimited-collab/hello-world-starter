@@ -1,3 +1,4 @@
+// Main entry point - v2 (force rebuild)
 // import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "assets/css/tailwindcss.css";
