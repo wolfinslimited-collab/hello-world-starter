@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type React from "react";
+import type { FC } from "react";
 import i18next from "locales";
 import useStorage from "context";
 import Modal from "components/specific/modal";
@@ -45,7 +45,7 @@ export default function Language() {
     </div>
   );
 }
-const Languages: React.FC<{
+const Languages: FC<{
   close: () => void;
 }> = ({ close }) => {
   const {
