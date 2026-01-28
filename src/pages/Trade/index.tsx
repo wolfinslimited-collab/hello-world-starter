@@ -51,7 +51,22 @@ export default function Trade() {
               .map(([, value]) => value);
           }
           
-          setApp({ pairs: pairsArray });
+          // Transform snake_case API fields to camelCase for store compatibility
+          const transformedPairs = pairsArray.map((p: any) => ({
+            ...p,
+            externalSymbol: p.external_symbol || p.externalSymbol,
+            pricePrecision: p.price_precision ?? p.pricePrecision ?? 2,
+            quantityPrecision: p.quantity_precision ?? p.quantityPrecision ?? 3,
+            tickSize: p.tick_size ?? p.tickSize ?? 0.01,
+            stepSize: p.step_size ?? p.stepSize ?? 0.001,
+            minQty: p.min_qty ?? p.minQty ?? 0.001,
+            maxQty: p.max_qty ?? p.maxQty ?? 1000000,
+            minPrice: p.min_price ?? p.minPrice ?? 0,
+            baseAssetId: p.base_asset_id ?? p.baseAssetId,
+            quoteAssetId: p.quote_asset_id ?? p.quoteAssetId,
+          }));
+          
+          setApp({ pairs: transformedPairs });
         }
       } finally {
         setLoading(false);
