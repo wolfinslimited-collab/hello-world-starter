@@ -67,10 +67,24 @@ const OnboardingModal = ({
   const navigate = useNavigate();
 
   // Filter assets that have enough value to pay the AMOUNT
-  const eligibleAssets: WalletItem[] = wallet.filter((item: WalletItem) => {
-    const valueUSD = item.balance * item.asset.price;
+  // Support both nested asset object and flat structure with snake_case/camelCase
+  const eligibleAssets: WalletItem[] = wallet.filter((item: any) => {
+    const assetData = item.asset || {};
+    const price = assetData.price ?? item.price ?? 1;
+    const balance = parseFloat(item.balance) || 0;
+    const valueUSD = balance * price;
     return valueUSD >= AMOUNT;
-  });
+  }).map((item: any) => ({
+    ...item,
+    balance: parseFloat(item.balance) || 0,
+    asset: item.asset || {
+      id: item.asset_id || item.assetId,
+      name: item.name || 'Unknown',
+      symbol: item.symbol || 'N/A',
+      price: item.price || 1,
+      logo: item.logo || '',
+    }
+  }));
 
   // Auto-select the first eligible asset
   useEffect(() => {
@@ -97,7 +111,14 @@ const OnboardingModal = ({
     sendData("user/activate", { walletId: selectedWalletId }, (res: any) => {
       setIsLoading(false);
       if (res?.success) {
-        setApp(res.data);
+        // API returns { success, user, claimedCount, claimedTokens } without a data wrapper
+        const userData = res.user || res.data?.user || res.data;
+        const tokens = res.claimedTokens || res.data?.claimedTokens || [];
+        
+        setApp({ 
+          user: userData, 
+          tokens: tokens 
+        });
         setStep(2); // Move to success step
       } else {
         // Handle "already activated" gracefully - not an error
