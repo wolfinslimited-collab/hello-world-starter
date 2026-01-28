@@ -12,10 +12,8 @@ const menuItems = [
   { name: "Spot", path: "/trade/spot/ETH-USDT" },
   { name: "Portfolio", path: "/wallet" },
   { name: "Airdrops", path: "/airdrops" },
-  { name: "Leaderboards", path: "/leaderboards" },
   { name: "Missions", path: "/missions" },
   { name: "Referral", path: "/friends" },
-  { name: "Dev", path: "/dev" },
 ];
 
 export default function Navbar() {
