@@ -107,7 +107,7 @@ export default function ReferralHub() {
             <img
               key={token.id || i}
               className="inline-block h-5 w-5 rounded-full ring-2 ring-white dark:ring-[#1A1A1E] bg-white object-cover"
-              src={token.logoUrl}
+              src={token.logo_url || token.logoUrl}
               alt={token.symbol}
             />
           ))}
