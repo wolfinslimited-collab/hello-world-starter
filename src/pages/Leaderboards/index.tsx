@@ -145,7 +145,7 @@ export default function Leaderboard() {
   const getLeaders = async () => {
     setIsLoading(true);
     try {
-      const res: any = await get("user/leaderboard");
+      const res: any = await get("user/leaderboards");
       if (res?.success && res?.data) {
         setMemory({ leaders: res.data.leaders });
       } else {
