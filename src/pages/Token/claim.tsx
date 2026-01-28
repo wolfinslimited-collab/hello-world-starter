@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type MouseEvent } from "react";
 import {
   Timer,
   Clock,
@@ -112,7 +112,7 @@ export default function ClaimButton({
     });
   };
 
-  const handleClaim = async (e: React.MouseEvent) => {
+  const handleClaim = async (e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsLoading(true);
@@ -153,7 +153,7 @@ export default function ClaimButton({
     });
   };
 
-  const handleActivatePlan = (e: React.MouseEvent) => {
+  const handleActivatePlan = (e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsOnboardingOpen(true);
