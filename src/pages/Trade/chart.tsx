@@ -69,7 +69,7 @@ const Chart = () => {
   // --- API Calls ---
   const fetchKlines = useCallback(
     async (endTime?: number) => {
-      if (!symbol || loading) return;
+      if (!symbol?.externalSymbol || loading) return;
       setLoading(true);
       try {
         let url = `${BASE_API}/klines?symbol=${symbol.externalSymbol}&interval=${interval.value}&limit=500`;
