@@ -2063,6 +2063,30 @@ async function verifyAndProcessSolanaDeposit(
   throw new Error("No valid deposit found in transaction");
 }
 
+// ==================== ASTERDEX API V3 INTEGRATION ====================
+// Based on official docs: https://github.com/asterdex/api-docs/blob/master/aster-deposit-withdrawal.md
+// 
+// IMPORTANT: AsterDEX automatically detects on-chain deposits
+// There is NO deposit credit API - deposits are processed when detected on-chain
+// Supported networks: EVM (BSC/ETH/Arbitrum) and SOLANA only - NO TRON
+//
+// Network mapping to AsterDEX format:
+// - EVM networks use chainId: 56 (BSC), 1 (ETH), 42161 (Arbitrum)
+// - Solana uses chainId: 101
+
+// Chain identifier to AsterDEX chainId mapping
+const CHAIN_TO_ASTERDEX: Record<string, { chainId: number; network: string }> = {
+  "solana": { chainId: 101, network: "SOLANA" },
+  "sol": { chainId: 101, network: "SOLANA" },
+  "bsc": { chainId: 56, network: "EVM" },
+  "bnb": { chainId: 56, network: "EVM" },
+  "eth": { chainId: 1, network: "EVM" },
+  "ethereum": { chainId: 1, network: "EVM" },
+  "arbitrum": { chainId: 42161, network: "EVM" },
+  "arb": { chainId: 42161, network: "EVM" },
+  // Note: TRON is NOT supported by AsterDEX
+};
+
 // HMAC-SHA256 signature helper for AsterDEX (Binance-like API)
 async function signAsterDexRequest(params: Record<string, string | number>, apiSecret: string): Promise<string> {
   const queryString = new URLSearchParams(params as Record<string, string>).toString();
@@ -2080,19 +2104,9 @@ async function signAsterDexRequest(params: Record<string, string | number>, apiS
     .join("");
 }
 
-// Network chain to AsterDEX network identifier mapping
-const CHAIN_TO_ASTERDEX_NETWORK: Record<string, string> = {
-  "solana": "SOL",
-  "sol": "SOL",
-  "eth": "ETH",
-  "ethereum": "ETH",
-  "bsc": "BSC",
-  "bnb": "BSC",
-  "tron": "TRX",
-  "trx": "TRX",
-};
-
-async function forwardToAsterDex(
+// Log deposit to AsterDEX - deposits are auto-detected on-chain
+// This function logs the deposit for tracking and can notify internal systems
+async function logAsterDexDeposit(
   assetSymbol: string, 
   amount: number, 
   txSignature: string, 
@@ -2103,85 +2117,69 @@ async function forwardToAsterDex(
   const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
   
   if (!apiKey || !apiSecret) {
-    console.log("AsterDEX credentials not configured, skipping forward");
+    console.log("AsterDEX credentials not configured, skipping deposit log");
     return;
   }
 
-  // Map chain identifier to AsterDEX network
-  const asterDexNetwork = CHAIN_TO_ASTERDEX_NETWORK[networkChain.toLowerCase()] || networkChain.toUpperCase();
+  // Get AsterDEX network info
+  const asterDexInfo = CHAIN_TO_ASTERDEX[networkChain.toLowerCase()];
   
-  console.log(`Forwarding ${amount} ${assetSymbol} (${asterDexNetwork}) to AsterDEX for user ${userId}...`);
+  if (!asterDexInfo) {
+    console.log(`Network ${networkChain} is not supported by AsterDEX (only EVM and Solana)`);
+    return;
+  }
 
+  console.log(`[AsterDEX] Deposit detected: ${amount} ${assetSymbol} on ${asterDexInfo.network} (chainId: ${asterDexInfo.chainId})`);
+  console.log(`[AsterDEX] TX: ${txSignature}, User: ${userId}`);
+  
+  // AsterDEX automatically detects on-chain deposits
+  // The deposit will be credited when confirmed on the blockchain
+  // We log this for tracking purposes
+  
   try {
-    // AsterDEX uses Binance-like API with HMAC-SHA256 signature
-    // Using the SAPI (Spot API) for capital/deposit operations
-    const ASTERDEX_SAPI = "https://sapi.asterdex.com";
+    // Check available deposit assets on AsterDEX to verify support
+    const checkUrl = `https://www.asterdex.com/bapi/futures/v1/public/future/aster/deposit/assets?chainIds=${asterDexInfo.chainId}&networks=${asterDexInfo.network}&accountType=spot`;
     
-    // Build request params - using capital deposit endpoint
-    const params: Record<string, string | number> = {
-      coin: assetSymbol,
-      amount: amount,
-      network: asterDexNetwork,
-      txId: txSignature,
-      timestamp: Date.now(),
-      recvWindow: 10000,
-    };
-
-    // Generate signature
-    const signature = await signAsterDexRequest(params, apiSecret);
-    const queryString = new URLSearchParams(params as Record<string, string>).toString();
-    
-    // Try the capital deposit credit endpoint (common for Binance-like exchanges)
-    const response = await fetch(`${ASTERDEX_SAPI}/sapi/v1/capital/deposit/credit?${queryString}&signature=${signature}`, {
-      method: "POST",
-      headers: {
-        "X-MBX-APIKEY": apiKey,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`AsterDEX forward failed: ${response.status} - ${errorText}`);
-      
-      // If the deposit credit endpoint doesn't work, try internal transfer
-      console.log("Trying alternative: internal transfer endpoint...");
-      await tryAsterDexInternalTransfer(apiKey, apiSecret, assetSymbol, amount, userId);
-      return;
+    const response = await fetch(checkUrl);
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`[AsterDEX] Deposit assets for chain ${asterDexInfo.chainId}:`, 
+        data.success ? `${data.data?.length || 0} assets available` : "API error");
     }
-
-    const result = await response.json();
-    console.log("AsterDEX forward result:", result);
+    
+    console.log(`[AsterDEX] Deposit will be auto-credited when confirmed on-chain`);
   } catch (err: any) {
-    console.error("AsterDEX forward error:", err.message);
-    // Don't throw - this runs in background and shouldn't fail the deposit
+    console.error("[AsterDEX] Check error:", err.message);
+    // Don't throw - this is just for logging
   }
 }
 
-// Alternative: Internal transfer for when funds are on AsterDEX main account
-async function tryAsterDexInternalTransfer(
+// Transfer funds between Spot and Futures on AsterDEX
+async function transferToAsterDexFutures(
   apiKey: string, 
   apiSecret: string, 
   asset: string, 
   amount: number,
-  userId: number
+  chainId: number
 ) {
   try {
-    const ASTERDEX_SAPI = "https://sapi.asterdex.com";
+    // Determine API base URL based on network
+    const isEVM = chainId !== 101;
+    const baseUrl = isEVM ? "https://fapi.asterdex.com" : "https://fapi.asterdex.com";
     
-    // Universal Transfer endpoint (spot to futures, or sub-account)
+    // Universal Transfer endpoint (spot to futures)
     const params: Record<string, string | number> = {
-      type: "MAIN_UMFUTURE", // Transfer from Spot to USDT-M Futures
+      type: "SPOT_TO_PERP",
       asset: asset,
       amount: amount,
       timestamp: Date.now(),
-      recvWindow: 10000,
+      recvWindow: 60000,
     };
 
     const signature = await signAsterDexRequest(params, apiSecret);
     const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
-    const response = await fetch(`${ASTERDEX_SAPI}/sapi/v1/asset/transfer?${queryString}&signature=${signature}`, {
+    const response = await fetch(`${baseUrl}/fapi/v1/asset/transfer?${queryString}&signature=${signature}`, {
       method: "POST",
       headers: {
         "X-MBX-APIKEY": apiKey,
@@ -2191,13 +2189,88 @@ async function tryAsterDexInternalTransfer(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`AsterDEX internal transfer failed: ${response.status} - ${errorText}`);
-      return;
+      console.error(`[AsterDEX] Transfer to futures failed: ${response.status} - ${errorText}`);
+      return { success: false, error: errorText };
     }
 
     const result = await response.json();
-    console.log("AsterDEX internal transfer result:", result);
+    console.log("[AsterDEX] Transfer to futures result:", result);
+    return { success: true, data: result };
   } catch (err: any) {
-    console.error("AsterDEX internal transfer error:", err.message);
+    console.error("[AsterDEX] Transfer error:", err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+// Get account balances from AsterDEX - uses EIP-712 signing for v3 API
+// Note: For server-side API calls, we need Agent Wallet credentials set up
+async function getAsterDexBalance(apiKey: string, apiSecret: string, accountType: string = "spot") {
+  try {
+    const timestamp = Date.now();
+    const params: Record<string, string | number> = {
+      timestamp: timestamp,
+      recvWindow: 60000,
+    };
+
+    const signature = await signAsterDexRequest(params, apiSecret);
+    const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+    // For spot: use sapi, for futures: use fapi
+    const baseUrl = accountType === "spot" 
+      ? "https://www.asterdex.com/api/v3"
+      : "https://fapi.asterdex.com/fapi/v3";
+
+    const response = await fetch(`${baseUrl}/account?${queryString}&signature=${signature}`, {
+      method: "GET",
+      headers: {
+        "X-MBX-APIKEY": apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[AsterDEX] Balance check failed: ${response.status} - ${errorText}`);
+      return null;
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (err: any) {
+    console.error("[AsterDEX] Balance check error:", err.message);
+    return null;
+  }
+}
+
+// Main function to handle deposit forwarding
+// Since AsterDEX auto-detects deposits, this logs and optionally transfers to futures
+async function forwardToAsterDex(
+  assetSymbol: string, 
+  amount: number, 
+  txSignature: string, 
+  userId: number,
+  networkChain: string = "solana"
+) {
+  // Log the deposit
+  await logAsterDexDeposit(assetSymbol, amount, txSignature, userId, networkChain);
+  
+  // Optionally, after deposit is confirmed on AsterDEX, 
+  // we could transfer from spot to futures if needed
+  // This would require checking balance first and then transferring
+  
+  const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+  const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+  
+  if (apiKey && apiSecret) {
+    // Check if we should auto-transfer to futures (configurable)
+    const autoTransferToFutures = false; // Set to true if needed
+    
+    if (autoTransferToFutures) {
+      const asterDexInfo = CHAIN_TO_ASTERDEX[networkChain.toLowerCase()];
+      if (asterDexInfo) {
+        // Wait a bit for the deposit to be credited
+        await new Promise(resolve => setTimeout(resolve, 30000)); // 30 second delay
+        await transferToAsterDexFutures(apiKey, apiSecret, assetSymbol, amount, asterDexInfo.chainId);
+      }
+    }
   }
 }
