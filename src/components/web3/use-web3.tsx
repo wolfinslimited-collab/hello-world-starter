@@ -93,6 +93,61 @@ const waitForTronConfirmation = async (
   throw new Error("Transaction confirmation timed out (Tron)");
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// NOTE: We intentionally avoid `connection.confirmTransaction()` here because it relies on
+// websocket `signatureSubscribe`, which can be broken/malformed on some RPC providers.
+// Instead we poll `getSignatureStatuses` (HTTP) until confirmed/finalized.
+const waitForSolanaConfirmation = async (params: {
+  connection: any;
+  signature: string;
+  lastValidBlockHeight: number;
+  commitment?: "processed" | "confirmed" | "finalized";
+  timeoutMs?: number;
+}) => {
+  const {
+    connection,
+    signature,
+    lastValidBlockHeight,
+    commitment = "confirmed",
+    timeoutMs = 120_000,
+  } = params;
+
+  const startedAt = Date.now();
+
+  while (true) {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > timeoutMs) {
+      throw new Error("Transaction confirmation timed out (Solana)");
+    }
+
+    // 1) Check signature status (HTTP RPC)
+    const { value } = await connection.getSignatureStatuses([signature], {
+      searchTransactionHistory: true,
+    });
+
+    const status = value?.[0];
+    if (status?.err) {
+      throw new Error("Transaction failed on chain (Solana)");
+    }
+
+    if (
+      status?.confirmationStatus === "confirmed" ||
+      status?.confirmationStatus === "finalized"
+    ) {
+      return;
+    }
+
+    // 2) Ensure we don't wait past the blockhash validity
+    const currentHeight = await connection.getBlockHeight(commitment);
+    if (currentHeight > lastValidBlockHeight) {
+      throw new Error(`Signature ${signature} has expired: block height exceeded.`);
+    }
+
+    await sleep(2000);
+  }
+};
+
 export const useWeb3 = () => {
   // 1. EVM Hooks
   const {
@@ -229,6 +284,8 @@ export const useWeb3 = () => {
         const pubKey = solAddress;
         const recipientKey = new PublicKey(recipient);
 
+        let actualRecipient: string = recipient;
+
         const tx = new Transaction();
 
         if (tokenAddress) {
@@ -243,6 +300,8 @@ export const useWeb3 = () => {
           const toToken = recipientInfo?.owner?.equals(TOKEN_PROGRAM_ID)
             ? recipientKey
             : await getAssociatedTokenAddress(mintKey, recipientKey);
+
+          actualRecipient = toToken.toBase58();
 
           // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
           const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));
@@ -275,26 +334,21 @@ export const useWeb3 = () => {
 
         const signedTx = await signSolTx(tx);
         const signature = await connection.sendRawTransaction(
-          signedTx.serialize()
-        );
-
-        // --- WAIT FOR CONFIRMATION ---
-        // 'confirmed' means ~66% of network voted (fast).
-        // 'finalized' is irreversible but slower. 'confirmed' is usually standard for UI.
-        const confirmation = await connection.confirmTransaction(
+          signedTx.serialize(),
           {
-            blockhash,
-            lastValidBlockHeight,
-            signature,
-          },
-          "confirmed"
+            maxRetries: 3,
+          }
         );
 
-        if (confirmation.value.err) {
-          return { success: false, error: "Transaction failed to confirm" };
-        }
+        // --- WAIT FOR CONFIRMATION (HTTP polling, no websockets) ---
+        await waitForSolanaConfirmation({
+          connection,
+          signature,
+          lastValidBlockHeight,
+          commitment: "confirmed",
+        });
 
-        return { success: true, hash: signature };
+        return { success: true, hash: signature, toAddress: actualRecipient };
       } catch (e: any) {
         return { success: false, error: e.message };
       }

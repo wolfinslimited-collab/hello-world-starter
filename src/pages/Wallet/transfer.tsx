@@ -6,6 +6,9 @@ import { useWeb3 } from "components/web3/use-web3";
 import { json, get } from "utils/request";
 import { useWallet } from "hooks/use-query";
 import { AssetNetworkConfig } from ".";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
 
@@ -103,6 +106,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
     setting: { token },
   } = useStorage();
 
+  const { connection } = useConnection();
   const web3 = useWeb3();
   const { fetchWallet } = useWallet(false);
   const [selectedNetConfig, setSelectedNetConfig] =
@@ -117,6 +121,10 @@ const Transfer = ({ modalType, asset, close }: any) => {
   // AsterDEX deposit address state
   const [asterDexAddress, setAsterDexAddress] = useState<string | null>(null);
   const [loadingAsterDex, setLoadingAsterDex] = useState(false);
+
+  // Solana: show the *actual* receiving token account (may differ from the vault owner address)
+  const [solanaReceiveAddress, setSolanaReceiveAddress] = useState<string | null>(null);
+  const [loadingSolanaReceiveAddress, setLoadingSolanaReceiveAddress] = useState(false);
 
   // Set default network when asset changes
   useEffect(() => {
@@ -230,7 +238,9 @@ const Transfer = ({ modalType, asset, close }: any) => {
             assetId: Number(asset.id),
             networkId: Number(selectedNetConfig.network.id),
             fromAddress: provider.address,
-            toAddress: asterDexAddress, // Track that it went to AsterDEX
+            // For Solana SPL transfers we may actually send to a token-account (ATA)
+            // even if the provided vault address is a system account.
+            toAddress: txRes.toAddress || asterDexAddress,
           },
           { token }
         );
@@ -286,6 +296,52 @@ const Transfer = ({ modalType, asset, close }: any) => {
     if (!selectedNetConfig) return null;
     return (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
   }, [selectedNetConfig]);
+
+  const resolvedTokenAddress = useMemo(() => {
+    if (!selectedNetConfig) return "";
+    return selectedNetConfig.contract_address || selectedNetConfig.contractAddress || "";
+  }, [selectedNetConfig]);
+
+  // Compute Solana actual receiving token account (to match what we send on-chain)
+  useEffect(() => {
+    const run = async () => {
+      if (modalType !== "deposit") {
+        setSolanaReceiveAddress(null);
+        return;
+      }
+
+      if (currentChainKey !== "solana") {
+        setSolanaReceiveAddress(null);
+        return;
+      }
+
+      if (!asterDexAddress || !resolvedTokenAddress) {
+        setSolanaReceiveAddress(null);
+        return;
+      }
+
+      setLoadingSolanaReceiveAddress(true);
+      try {
+        const recipientKey = new PublicKey(asterDexAddress);
+        const recipientInfo = await connection.getAccountInfo(recipientKey);
+
+        if (recipientInfo?.owner?.equals(TOKEN_PROGRAM_ID)) {
+          setSolanaReceiveAddress(asterDexAddress);
+          return;
+        }
+
+        const mintKey = new PublicKey(resolvedTokenAddress);
+        const ata = await getAssociatedTokenAddress(mintKey, recipientKey);
+        setSolanaReceiveAddress(ata.toBase58());
+      } catch {
+        setSolanaReceiveAddress(null);
+      } finally {
+        setLoadingSolanaReceiveAddress(false);
+      }
+    };
+
+    run();
+  }, [modalType, currentChainKey, asterDexAddress, resolvedTokenAddress, connection]);
 
   // Check Wallet Connection
   const isWalletConnected = useMemo(() => {
@@ -366,7 +422,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
               <div className="mb-2 flex items-center gap-2">
                 <ExternalLink className="size-4 text-blue-400" />
                 <span className="text-xs font-bold text-blue-400">
-                  AsterDEX Contract Address
+                  AsterDEX Deposit Address
                 </span>
               </div>
               {loadingAsterDex ? (
@@ -375,7 +431,35 @@ const Transfer = ({ modalType, asset, close }: any) => {
                   <span className="text-sm text-neutral-400">Loading...</span>
                 </div>
               ) : asterDexAddress ? (
-                <p className="break-all font-mono text-sm text-white">{asterDexAddress}</p>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                      Vault / owner address
+                    </div>
+                    <p className="break-all font-mono text-sm text-white">{asterDexAddress}</p>
+                  </div>
+
+                  {currentChainKey === "solana" && resolvedTokenAddress ? (
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                        Receiving token account
+                      </div>
+                      {loadingSolanaReceiveAddress ? (
+                        <div className="flex items-center gap-2 py-1">
+                          <Loader2 className="size-3 animate-spin text-blue-400" />
+                          <span className="text-xs text-neutral-400">Calculating…</span>
+                        </div>
+                      ) : solanaReceiveAddress ? (
+                        <p className="break-all font-mono text-sm text-white">{solanaReceiveAddress}</p>
+                      ) : (
+                        <p className="text-xs text-neutral-400">Unavailable</p>
+                      )}
+                      <p className="mt-1 text-[10px] text-neutral-500">
+                        On Solana, SPL tokens are received by a token account (this can differ from the vault address).
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <p className="text-sm text-red-400">Not available for this network</p>
               )}
