@@ -1461,6 +1461,7 @@ Deno.serve(async (req) => {
     // ==================== ASTERDEX API ENDPOINTS ====================
     
     // Get AsterDEX deposit address for a specific coin/network (no user auth - uses platform API keys)
+    // NOTE: AsterDEX uses fapi.asterdex.com for trading API, but deposit addresses use a different mechanism
     if (path === "/asterdex/deposit-address" && method === "GET") {
       const coin = url.searchParams.get("coin") || "USDT";
       const network = url.searchParams.get("network") || "SOL";
@@ -1484,22 +1485,37 @@ Deno.serve(async (req) => {
         const signature = await signAsterDexRequest(params, apiSecret);
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
-        // AsterDEX SAPI endpoint for deposit address
-        const response = await fetch(
-          `https://sapi.asterdex.com/sapi/v1/capital/deposit/address?${queryString}&signature=${signature}`,
-          {
-            method: "GET",
-            headers: {
-              "X-MBX-APIKEY": apiKey,
-            },
-          }
-        );
+        // Try the fapi base URL (correct AsterDEX domain)
+        const apiUrl = `https://fapi.asterdex.com/sapi/v1/capital/deposit/address?${queryString}&signature=${signature}`;
+        console.log("Fetching AsterDEX deposit address from:", apiUrl);
 
-        const data = await response.json();
+        const response = await fetch(apiUrl, {
+          method: "GET",
+          headers: {
+            "X-MBX-APIKEY": apiKey,
+            "Content-Type": "application/json",
+          },
+        });
+
+        // Check content-type to detect HTML error pages
+        const contentType = response.headers.get("content-type") || "";
+        const responseText = await response.text();
+        
+        console.log("AsterDEX response status:", response.status);
+        console.log("AsterDEX response content-type:", contentType);
+        console.log("AsterDEX response preview:", responseText.substring(0, 500));
+
+        if (!contentType.includes("application/json")) {
+          // Got HTML instead of JSON - endpoint likely doesn't exist
+          console.error("AsterDEX returned non-JSON response");
+          return error(`AsterDEX API returned HTML - this endpoint may not exist. Status: ${response.status}. Preview: ${responseText.substring(0, 200)}`, 500);
+        }
+
+        const data = JSON.parse(responseText);
         
         if (!response.ok) {
           console.error("AsterDEX deposit address error:", data);
-          return error(data.msg || "Failed to get deposit address", response.status);
+          return error(data.msg || data.message || "Failed to get deposit address", response.status);
         }
 
         return success({
@@ -1515,8 +1531,30 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Get AsterDEX supported coins/networks config (no user auth - uses platform API keys)
-    if (path === "/asterdex/config" && method === "GET") {
+    // Get AsterDEX exchange info (publicly available endpoint)
+    if (path === "/asterdex/exchangeinfo" && method === "GET") {
+      try {
+        const response = await fetch("https://fapi.asterdex.com/fapi/v1/exchangeInfo", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          const text = await response.text();
+          return error(`AsterDEX returned HTML. Preview: ${text.substring(0, 200)}`, 500);
+        }
+
+        const data = await response.json();
+        return success({ exchangeInfo: data });
+      } catch (err: any) {
+        console.error("AsterDEX exchangeInfo error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Get AsterDEX account balance (requires authentication)
+    if (path === "/asterdex/balance" && method === "GET") {
       const apiKey = Deno.env.get("ASTERDEX_API_KEY");
       const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
 
@@ -1534,27 +1572,77 @@ Deno.serve(async (req) => {
         const signature = await signAsterDexRequest(params, apiSecret);
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
-        // AsterDEX SAPI endpoint for coin config
         const response = await fetch(
-          `https://sapi.asterdex.com/sapi/v1/capital/config/getall?${queryString}&signature=${signature}`,
+          `https://fapi.asterdex.com/fapi/v2/balance?${queryString}&signature=${signature}`,
           {
             method: "GET",
             headers: {
               "X-MBX-APIKEY": apiKey,
+              "Content-Type": "application/json",
             },
           }
         );
 
-        const data = await response.json();
+        const contentType = response.headers.get("content-type") || "";
+        const responseText = await response.text();
 
-        if (!response.ok) {
-          console.error("AsterDEX config error:", data);
-          return error(data.msg || "Failed to get config", response.status);
+        if (!contentType.includes("application/json")) {
+          return error(`AsterDEX returned HTML. Preview: ${responseText.substring(0, 200)}`, 500);
         }
 
-        return success({ coins: data });
+        const data = JSON.parse(responseText);
+
+        if (!response.ok) {
+          console.error("AsterDEX balance error:", data);
+          return error(data.msg || data.message || "Failed to get balance", response.status);
+        }
+
+        return success({ balances: data });
       } catch (err: any) {
-        console.error("AsterDEX API error:", err);
+        console.error("AsterDEX balance error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Test AsterDEX connectivity (public ping endpoint)
+    if (path === "/asterdex/ping" && method === "GET") {
+      try {
+        const response = await fetch("https://fapi.asterdex.com/fapi/v1/ping", {
+          method: "GET",
+        });
+
+        const contentType = response.headers.get("content-type") || "";
+        const responseText = await response.text();
+
+        console.log("AsterDEX ping status:", response.status);
+        console.log("AsterDEX ping content-type:", contentType);
+
+        if (!response.ok) {
+          return error(`AsterDEX ping failed. Status: ${response.status}`, response.status);
+        }
+
+        return success({ 
+          connected: true,
+          response: responseText || "{}",
+          status: response.status 
+        });
+      } catch (err: any) {
+        console.error("AsterDEX ping error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Get AsterDEX server time (public endpoint)
+    if (path === "/asterdex/time" && method === "GET") {
+      try {
+        const response = await fetch("https://fapi.asterdex.com/fapi/v1/time", {
+          method: "GET",
+        });
+
+        const data = await response.json();
+        return success({ serverTime: data.serverTime });
+      } catch (err: any) {
+        console.error("AsterDEX time error:", err);
         return error(err.message, 500);
       }
     }
