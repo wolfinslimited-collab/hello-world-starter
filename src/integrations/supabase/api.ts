@@ -484,6 +484,28 @@ export const walletApi = {
   ): Promise<{ status: string; amount?: number; assetSymbol?: string; transaction?: WalletTransaction }> => {
     return fetchApi("/wallet/verify-deposit", { method: "POST", body: data, token });
   },
+
+  // AsterDEX deposit address (for trading deposits)
+  getAsterDexDepositAddress: async (
+    coin: string,
+    chainId: number,
+    network: "EVM" | "SOLANA" = "EVM"
+  ): Promise<{
+    coin: string;
+    displayName: string;
+    address: string;
+    contractAddress: string | null;
+    tokenVault: string | null;
+    tokenMint: string | null;
+    network: string;
+    chainId: number;
+    decimals: number;
+    depositType: string;
+    isNative: boolean;
+    instructions: string;
+  }> => {
+    return fetchApi(`/asterdex/deposit-address?coin=${coin}&chainId=${chainId}&network=${network}`);
+  },
 };
 
 // ==================== TRADING API ====================
