@@ -8,7 +8,7 @@ import { useWallet } from "hooks/use-query";
 import { AssetNetworkConfig } from ".";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAccount } from "@solana/spl-token";
 
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
 
@@ -124,6 +124,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
   // Solana: show the *actual* receiving token account (may differ from the vault owner address)
   const [solanaReceiveAddress, setSolanaReceiveAddress] = useState<string | null>(null);
+  const [solanaVaultOwner, setSolanaVaultOwner] = useState<string | null>(null);
   const [loadingSolanaReceiveAddress, setLoadingSolanaReceiveAddress] = useState(false);
   const [solanaDepositAddressError, setSolanaDepositAddressError] = useState<string | null>(null);
 
@@ -328,18 +329,21 @@ const Transfer = ({ modalType, asset, close }: any) => {
     const run = async () => {
       if (modalType !== "deposit") {
         setSolanaReceiveAddress(null);
+        setSolanaVaultOwner(null);
         setSolanaDepositAddressError(null);
         return;
       }
 
       if (currentChainKey !== "solana") {
         setSolanaReceiveAddress(null);
+        setSolanaVaultOwner(null);
         setSolanaDepositAddressError(null);
         return;
       }
 
       if (!asterDexAddress || !resolvedTokenAddress) {
         setSolanaReceiveAddress(null);
+        setSolanaVaultOwner(null);
         setSolanaDepositAddressError(null);
         return;
       }
@@ -359,6 +363,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
         if (!recipientInfo.owner?.equals(TOKEN_PROGRAM_ID)) {
           setSolanaReceiveAddress(null);
+          setSolanaVaultOwner(null);
           setSolanaDepositAddressError(
             "Invalid Solana deposit address (expected token vault / token account). Please refresh the deposit address."
           );
@@ -367,9 +372,21 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
         // For SPL deposits we always send directly to the token vault.
         setSolanaReceiveAddress(asterDexAddress);
+
+        // IMPORTANT: Token accounts have an *authority/owner* pubkey (not to be confused with the
+        // program owner TOKEN_PROGRAM_ID). Solscan often shows this authority address prominently,
+        // which can look like funds were sent there. We display it explicitly to avoid confusion.
+        try {
+          const tokenAccount = await getAccount(connection, recipientKey, "confirmed");
+          setSolanaVaultOwner(tokenAccount.owner.toBase58());
+        } catch {
+          setSolanaVaultOwner(null);
+        }
+
         setSolanaDepositAddressError(null);
       } catch {
         setSolanaReceiveAddress(null);
+        setSolanaVaultOwner(null);
         setSolanaDepositAddressError("Unable to validate Solana deposit address. Please try again.");
       } finally {
         setLoadingSolanaReceiveAddress(false);
@@ -527,6 +544,22 @@ const Transfer = ({ modalType, asset, close }: any) => {
                       ) : (
                         <p className="text-xs text-neutral-400">Unavailable</p>
                       )}
+
+                      {solanaVaultOwner ? (
+                        <div className="mt-2">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                            Vault owner (authority)
+                          </div>
+                          <p className="break-all font-mono text-xs text-neutral-200">
+                            {solanaVaultOwner}
+                          </p>
+                          <p className="mt-1 text-[10px] text-neutral-500">
+                            Solscan may show this owner address as “holding” the vault’s tokens. Your transfer destination
+                            is the token account above.
+                          </p>
+                        </div>
+                      ) : null}
+
                       <p className="mt-1 text-[10px] text-neutral-500">
                         For Solana USDC/USDT deposits we only allow sending to the AsterDEX token vault (token account).
                       </p>
@@ -649,6 +682,20 @@ const Transfer = ({ modalType, asset, close }: any) => {
                     : asterDexAddress}
                 </p>
               </div>
+
+              {currentChainKey === "solana" && solanaVaultOwner ? (
+                <div>
+                  <span className="text-neutral-400">Vault owner (authority):</span>
+                  <p className="mt-1 break-all rounded bg-neutral-800/50 p-2 font-mono text-xs text-neutral-200">
+                    {solanaVaultOwner}
+                  </p>
+                  <p className="mt-1 text-[10px] text-neutral-500">
+                    If you look up the owner on Solscan, it can appear like funds were sent there. The actual SPL transfer
+                    destination is the token account above.
+                  </p>
+                </div>
+              ) : null}
+
               {currentChainKey === "solana" && (
                 <p className="text-[10px] text-yellow-400">
                   ⚠️ Check browser console (F12) for detailed transaction logs
