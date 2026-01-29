@@ -184,12 +184,21 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
         if (!provider?.isConnected) throw new Error("Wallet not connected");
 
+        const tokenAddress =
+          (selectedNetConfig as any).contractAddress ||
+          (selectedNetConfig as any).contract_address ||
+          "";
+        const tokenDecimals =
+          (selectedNetConfig as any).decimals ??
+          (selectedNetConfig as any).tokenDecimals ??
+          18;
+
         // 1. Execute Blockchain Transaction directly to AsterDEX contract
         const txRes = await provider.deposit(
           asterDexAddress, // Deposit directly to AsterDEX - single tx, minimal fees
           amount,
-          selectedNetConfig.contractAddress,
-          selectedNetConfig.decimals
+          tokenAddress,
+          tokenDecimals
         );
 
         if (!txRes.success) {

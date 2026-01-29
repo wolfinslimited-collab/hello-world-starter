@@ -22,6 +22,7 @@ import {
 import {
   getAssociatedTokenAddress,
   createTransferInstruction,
+  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { useWallet as useTronWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import { Buffer } from "buffer";
@@ -234,10 +235,14 @@ export const useWeb3 = () => {
           // SPL Token Transfer
           const mintKey = new PublicKey(tokenAddress);
           const fromToken = await getAssociatedTokenAddress(mintKey, pubKey);
-          const toToken = await getAssociatedTokenAddress(
-            mintKey,
-            recipientKey
-          );
+
+          // AsterDEX returns `tokenVault` for SPL tokens. This is often a *token account*
+          // (owned by the SPL Token program), not a wallet owner address.
+          // If it is already a token account, transfer to it directly; otherwise derive ATA.
+          const recipientInfo = await connection.getAccountInfo(recipientKey);
+          const toToken = recipientInfo?.owner?.equals(TOKEN_PROGRAM_ID)
+            ? recipientKey
+            : await getAssociatedTokenAddress(mintKey, recipientKey);
 
           // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
           const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));
