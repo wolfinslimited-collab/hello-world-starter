@@ -611,6 +611,38 @@ const Transfer = ({ modalType, asset, close }: any) => {
           </div>
         )}
 
+        {/* CONFIRMATION BOX - Shows exactly where funds will go */}
+        {modalType === "deposit" && isWalletConnected && asterDexAddress && parseFloat(amount || "0") > 0 && !isDepositBelowMinimum && (
+          <div className="rounded-xl border-2 border-dashed border-green-500/50 bg-green-500/10 p-4">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-green-400">
+              ✓ Transaction Summary
+            </p>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Amount:</span>
+                <span className="font-bold text-white">{amount} {asset.symbol}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Network:</span>
+                <span className="font-medium text-white">{selectedNetConfig?.network?.name}</span>
+              </div>
+              <div>
+                <span className="text-neutral-400">Destination:</span>
+                <p className="mt-1 break-all rounded bg-neutral-800/50 p-2 font-mono text-xs text-green-300">
+                  {currentChainKey === "solana" && solanaReceiveAddress 
+                    ? solanaReceiveAddress 
+                    : asterDexAddress}
+                </p>
+              </div>
+              {currentChainKey === "solana" && (
+                <p className="text-[10px] text-yellow-400">
+                  ⚠️ Check browser console (F12) for detailed transaction logs
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* MAIN ACTION BUTTON */}
         {modalType === "deposit" ? (
           isWalletConnected && asterDexAddress ? (
@@ -625,7 +657,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
                   Processing...
                 </>
               ) : (
-                "Confirm Deposit"
+                `Send ${amount || "0"} ${asset.symbol} to AsterDEX`
               )}
             </button>
           ) : null
