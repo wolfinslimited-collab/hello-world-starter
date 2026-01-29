@@ -377,14 +377,27 @@ const Transfer = ({ modalType, asset, close }: any) => {
     return parseFloat(amount || "0") > avail;
   }, [amount, asset, modalType]);
 
+  // Check Deposit Minimum
+  const isDepositBelowMinimum = useMemo(() => {
+    if (!selectedNetConfig || modalType !== "deposit") return false;
+    const numAmount = parseFloat(amount || "0");
+    const minDeposit = selectedNetConfig.minDeposit ?? selectedNetConfig.min_deposit ?? 0;
+    return numAmount > 0 && numAmount < minDeposit;
+  }, [amount, selectedNetConfig, modalType]);
+
   // Can proceed with deposit?
   const canDeposit = useMemo(() => {
     if (modalType !== "deposit") return true;
+    
+    const numAmount = parseFloat(amount || "0");
+    const minDeposit = selectedNetConfig?.minDeposit ?? selectedNetConfig?.min_deposit ?? 0;
+    
     const baseOk =
       isWalletConnected &&
       asterDexAddress &&
       !loadingAsterDex &&
-      parseFloat(amount || "0") > 0;
+      numAmount > 0 &&
+      numAmount >= minDeposit; // Block if below minimum
 
     if (currentChainKey === "solana") {
       return baseOk && !loadingSolanaReceiveAddress && !solanaDepositAddressError;
@@ -397,6 +410,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
     asterDexAddress,
     loadingAsterDex,
     amount,
+    selectedNetConfig,
     currentChainKey,
     loadingSolanaReceiveAddress,
     solanaDepositAddressError,
@@ -541,7 +555,8 @@ const Transfer = ({ modalType, asset, close }: any) => {
               onChange={(e: any) => setAmount(e.target.value)}
               type="number"
               rightElement={<span className="font-bold">{asset.symbol}</span>}
-              helperText={`Min: ${selectedNetConfig.minDeposit || 0}`}
+              helperText={`Min: ${selectedNetConfig.minDeposit ?? selectedNetConfig.min_deposit ?? 0} ${asset.symbol}`}
+              error={isDepositBelowMinimum ? `Minimum deposit is ${selectedNetConfig.minDeposit ?? selectedNetConfig.min_deposit ?? 0} ${asset.symbol}` : ""}
             />
           </>
         ) : (
