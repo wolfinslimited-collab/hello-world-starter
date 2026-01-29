@@ -220,7 +220,8 @@ export const useWeb3 = () => {
     deposit: async (
       recipient: string,
       amount: string,
-      tokenAddress: string = ""
+      tokenAddress: string = "",
+      tokenDecimals: number = 9 // Default to SOL decimals
     ) => {
       try {
         if (!solAddress || !signSolTx) throw new Error("Wallet not ready");
@@ -230,7 +231,7 @@ export const useWeb3 = () => {
         const tx = new Transaction();
 
         if (tokenAddress) {
-          // SPL Token
+          // SPL Token Transfer
           const mintKey = new PublicKey(tokenAddress);
           const fromToken = await getAssociatedTokenAddress(mintKey, pubKey);
           const toToken = await getAssociatedTokenAddress(
@@ -238,21 +239,24 @@ export const useWeb3 = () => {
             recipientKey
           );
 
+          // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
+          const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));
+
           tx.add(
             createTransferInstruction(
               fromToken,
               toToken,
               pubKey,
-              parseInt(amount) * 1_000_000
+              tokenAmount
             )
           );
         } else {
-          // Native SOL
+          // Native SOL Transfer
           tx.add(
             SystemProgram.transfer({
               fromPubkey: pubKey,
               toPubkey: recipientKey,
-              lamports: parseFloat(amount) * LAMPORTS_PER_SOL,
+              lamports: Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL),
             })
           );
         }
