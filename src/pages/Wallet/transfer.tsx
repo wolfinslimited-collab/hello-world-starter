@@ -364,27 +364,34 @@ const InputGroup = ({
                 Network
               </label>
               <div className="scrollbar-none flex gap-2 overflow-x-auto pb-2">
-                {asset.networks.map((net: any) => (
-                  <button
-                    key={net.id}
-                    onClick={() => setSelectedNetConfig(net)}
-                    className={clsx(
-                      "group flex shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-xs font-bold transition-all",
-                      selectedNetConfig.id === net.id
-                        ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-black"
-                        : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:text-white"
-                    )}
-                  >
-                    <img
-                      src={net.network.logo}
-                      className="size-5 rounded-full"
-                    />
-                    {net.network.name}
-                    {selectedNetConfig.id === net.id && (
-                      <Check className="ml-1 size-3" />
-                    )}
-                  </button>
-                ))}
+                {asset.networks
+                  .filter((net: any) => {
+                    // Filter out inactive networks (like TRON)
+                    const isActive = net.isActive !== false && net.is_active !== false;
+                    const networkActive = net.network?.isActive !== false && net.network?.is_active !== false;
+                    return isActive && networkActive;
+                  })
+                  .map((net: any) => (
+                    <button
+                      key={net.id}
+                      onClick={() => setSelectedNetConfig(net)}
+                      className={clsx(
+                        "group flex shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-xs font-bold transition-all",
+                        selectedNetConfig.id === net.id
+                          ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-black"
+                          : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:text-white"
+                      )}
+                    >
+                      <img
+                        src={net.network.logo}
+                        className="size-5 rounded-full"
+                      />
+                      {net.network.name}
+                      {selectedNetConfig.id === net.id && (
+                        <Check className="ml-1 size-3" />
+                      )}
+                    </button>
+                  ))}
               </div>
             </div>
 

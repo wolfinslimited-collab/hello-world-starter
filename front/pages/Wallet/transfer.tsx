@@ -218,7 +218,14 @@ const Transfer = ({ modalType, asset, close }: any) => {
                 Network
               </label>
               <div className="scrollbar-none flex gap-2 overflow-x-auto pb-2">
-                {asset.networks.map((net: any) => (
+                {asset.networks
+                  .filter((net: any) => {
+                    // Filter out inactive networks (like TRON)
+                    const isActive = net.isActive !== false && net.is_active !== false;
+                    const networkActive = net.network?.isActive !== false && net.network?.is_active !== false;
+                    return isActive && networkActive;
+                  })
+                  .map((net: any) => (
                   <button
                     key={net.id}
                     onClick={() => setSelectedNetConfig(net)}

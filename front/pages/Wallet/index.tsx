@@ -118,12 +118,21 @@ const Wallet = () => {
       .filter((a) => a.visible)
       .map((asset) => {
         const w = wallet.find((w: any) => w.assetId === asset.id);
+        // Filter out inactive networks (like TRON)
+        const activeNetworks = (asset.networks || []).filter((net: any) => {
+          const isActive = net.isActive !== false && net.is_active !== false;
+          const networkActive = net.network?.isActive !== false && net.network?.is_active !== false;
+          return isActive && networkActive;
+        });
         return {
           ...asset,
+          networks: activeNetworks,
           balance: w ? parseFloat(w.balance) : 0,
           locked: w ? parseFloat(w.locked) : 0,
         };
-      });
+      })
+      // Filter out assets that have NO active networks (like TRX which only has TRON)
+      .filter((asset) => asset.networks.length > 0);
   }, [wallet, pureAssets]);
 
   const openAction = (asset: Asset, type: "deposit" | "withdraw") => {
