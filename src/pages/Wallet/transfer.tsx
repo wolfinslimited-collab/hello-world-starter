@@ -14,8 +14,12 @@ const fetchAsterDexAddress = async (coin: string, chainId: number): Promise<stri
   try {
     const network = chainId === 101 ? "SOLANA" : "EVM";
     const result = await get(`/asterdex/deposit-address?coin=${coin}&chainId=${chainId}&network=${network}`);
-    if (result?.success && result?.depositAddress) {
-      return result.depositAddress;
+    if (result?.success) {
+      // For Solana: use tokenVault, for EVM: use contractAddress or address
+      if (chainId === 101 && result.tokenVault) {
+        return result.tokenVault;
+      }
+      return result.contractAddress || result.address || null;
     }
     return null;
   } catch (err) {
