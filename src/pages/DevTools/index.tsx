@@ -18,12 +18,11 @@ const ENDPOINTS = [
   { path: '/missions', method: 'GET', auth: true, description: 'Get missions' },
   { path: '/user/leaderboards', method: 'GET', auth: false, description: 'Get leaderboards' },
   // AsterDEX API endpoints - testing connectivity and available endpoints
+  // Note: AsterDEX is a DEX - no deposit address API exists. Users deposit directly to AsterDEX smart contracts.
   { path: '/asterdex/ping', method: 'GET', auth: false, description: 'Test AsterDEX connectivity (public)' },
   { path: '/asterdex/time', method: 'GET', auth: false, description: 'Get AsterDEX server time (public)' },
   { path: '/asterdex/exchangeinfo', method: 'GET', auth: false, description: 'Get AsterDEX exchange info (public)' },
   { path: '/asterdex/balance', method: 'GET', auth: false, description: 'Get AsterDEX account balance (requires API key)' },
-  { path: '/asterdex/deposit-address?coin=USDT&network=SOL', method: 'GET', auth: false, description: 'Get AsterDEX deposit address (Solana) - may not exist' },
-  // Removed old deposit-address endpoints that don't work
 
 ];
 
