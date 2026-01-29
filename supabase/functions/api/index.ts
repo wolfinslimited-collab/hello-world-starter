@@ -1460,11 +1460,8 @@ Deno.serve(async (req) => {
 
     // ==================== ASTERDEX API ENDPOINTS ====================
     
-    // Get AsterDEX deposit address for a specific coin/network
+    // Get AsterDEX deposit address for a specific coin/network (no user auth - uses platform API keys)
     if (path === "/asterdex/deposit-address" && method === "GET") {
-      const user = await getAuthUser(supabase, token!);
-      if (!user) return error("Unauthorized", 401);
-
       const coin = url.searchParams.get("coin") || "USDT";
       const network = url.searchParams.get("network") || "SOL";
 
@@ -1518,11 +1515,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Get AsterDEX supported coins/networks config
+    // Get AsterDEX supported coins/networks config (no user auth - uses platform API keys)
     if (path === "/asterdex/config" && method === "GET") {
-      const user = await getAuthUser(supabase, token!);
-      if (!user) return error("Unauthorized", 401);
-
       const apiKey = Deno.env.get("ASTERDEX_API_KEY");
       const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
 
