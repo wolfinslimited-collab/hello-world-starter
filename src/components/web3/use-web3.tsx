@@ -293,37 +293,73 @@ export const useWeb3 = () => {
           const mintKey = new PublicKey(tokenAddress);
           const fromToken = await getAssociatedTokenAddress(mintKey, pubKey);
 
-          // IMPORTANT:
-          // For deposits, the backend must provide a *token vault* (token account) for SPL transfers.
-          // Deriving an ATA for a system wallet can route funds to a different address than shown.
+          // ===== CRITICAL DEBUG LOGGING =====
+          console.log("=".repeat(60));
+          console.log("[SOLANA SPL DEPOSIT] Transaction Details:");
+          console.log("=".repeat(60));
+          console.log("Token Mint:", tokenAddress);
+          console.log("User Wallet (signer):", pubKey.toBase58());
+          console.log("User's Token Account (SOURCE - fromToken):", fromToken.toBase58());
+          console.log("Recipient Address (provided by backend):", recipient);
+          console.log("Decimals:", tokenDecimals);
+          console.log("Amount:", amount);
+          console.log("-".repeat(60));
+
+          // STRICT VALIDATION: The recipient MUST be a token account owned by TOKEN_PROGRAM_ID
+          // This prevents sending to system wallets where ATAs would be auto-derived
           const recipientInfo = await connection.getAccountInfo(recipientKey);
+          
+          console.log("Recipient Account Info:");
+          console.log("  - Exists:", !!recipientInfo);
+          console.log("  - Owner:", recipientInfo?.owner?.toBase58() || "N/A");
+          console.log("  - Is Token Account:", recipientInfo?.owner?.equals(TOKEN_PROGRAM_ID) || false);
+          
           if (!recipientInfo) {
+            console.error("[SOLANA SPL DEPOSIT] ABORT: Recipient not found on-chain!");
             throw new Error(
               "Invalid Solana deposit address (not found on-chain). Please refresh the deposit address."
             );
           }
           if (!recipientInfo.owner.equals(TOKEN_PROGRAM_ID)) {
+            console.error("[SOLANA SPL DEPOSIT] ABORT: Recipient is NOT a token account!");
+            console.error("  Expected owner:", TOKEN_PROGRAM_ID.toBase58());
+            console.error("  Actual owner:", recipientInfo.owner.toBase58());
             throw new Error(
               "Invalid Solana deposit address (expected SPL token account). Please refresh the deposit address."
             );
           }
 
+          // Use the recipient directly - no ATA derivation for the destination!
           const toToken: PublicKey = recipientKey;
           actualRecipient = toToken.toBase58();
+
+          console.log("-".repeat(60));
+          console.log("FINAL DESTINATION (toToken):", actualRecipient);
+          console.log("Verify: toToken === recipient:", actualRecipient === recipient);
+          console.log("=".repeat(60));
 
           // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
           const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));
 
+          console.log("Creating transfer instruction:");
+          console.log("  - FROM:", fromToken.toBase58());
+          console.log("  - TO:", toToken.toBase58());
+          console.log("  - AUTHORITY:", pubKey.toBase58());
+          console.log("  - AMOUNT (raw):", tokenAmount);
+
           tx.add(
             createTransferInstruction(
-              fromToken,
-              toToken,
-              pubKey,
+              fromToken,  // SOURCE: User's token account
+              toToken,    // DESTINATION: AsterDEX vault (must be token account!)
+              pubKey,     // AUTHORITY: User's wallet
               tokenAmount
             )
           );
+
+          console.log("Transfer instruction added to transaction.");
         } else {
           // Native SOL Transfer
+          console.log("[SOLANA NATIVE] Sending SOL to:", recipient);
           tx.add(
             SystemProgram.transfer({
               fromPubkey: pubKey,
@@ -340,13 +376,19 @@ export const useWeb3 = () => {
         tx.recentBlockhash = blockhash;
         tx.feePayer = pubKey;
 
+        console.log("[SOLANA] Signing transaction...");
         const signedTx = await signSolTx(tx);
+        
+        console.log("[SOLANA] Broadcasting transaction...");
         const signature = await connection.sendRawTransaction(
           signedTx.serialize(),
           {
             maxRetries: 3,
           }
         );
+
+        console.log("[SOLANA] Transaction broadcasted! Signature:", signature);
+        console.log("[SOLANA] Waiting for confirmation...");
 
         // --- WAIT FOR CONFIRMATION (HTTP polling, no websockets) ---
         await waitForSolanaConfirmation({
@@ -356,8 +398,17 @@ export const useWeb3 = () => {
           commitment: "confirmed",
         });
 
+        console.log("[SOLANA] Transaction CONFIRMED!");
+        console.log("=".repeat(60));
+        console.log("FINAL SUMMARY:");
+        console.log("  Signature:", signature);
+        console.log("  Sent TO:", actualRecipient);
+        console.log("  View on Solscan: https://solscan.io/tx/" + signature);
+        console.log("=".repeat(60));
+
         return { success: true, hash: signature, toAddress: actualRecipient };
       } catch (e: any) {
+        console.error("[SOLANA] Deposit error:", e);
         return { success: false, error: e.message };
       }
     },
