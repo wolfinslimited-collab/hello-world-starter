@@ -17,11 +17,11 @@ const ENDPOINTS = [
   { path: '/user/profile', method: 'GET', auth: true, description: 'Get user profile' },
   { path: '/missions', method: 'GET', auth: true, description: 'Get missions' },
   { path: '/user/leaderboards', method: 'GET', auth: false, description: 'Get leaderboards' },
-  // AsterDEX SAPI endpoints
-  { path: '/asterdex/deposit-address?coin=USDT&network=SOL', method: 'GET', auth: true, description: 'Get AsterDEX deposit address (Solana)' },
-  { path: '/asterdex/deposit-address?coin=USDT&network=ETH', method: 'GET', auth: true, description: 'Get AsterDEX deposit address (Ethereum)' },
-  { path: '/asterdex/deposit-address?coin=USDT&network=BSC', method: 'GET', auth: true, description: 'Get AsterDEX deposit address (BSC)' },
-  { path: '/asterdex/config', method: 'GET', auth: true, description: 'Get AsterDEX supported coins/networks' },
+  // AsterDEX SAPI endpoints (platform-level, no user auth needed)
+  { path: '/asterdex/deposit-address?coin=USDT&network=SOL', method: 'GET', auth: false, description: 'Get AsterDEX deposit address (Solana)' },
+  { path: '/asterdex/deposit-address?coin=USDT&network=ETH', method: 'GET', auth: false, description: 'Get AsterDEX deposit address (Ethereum)' },
+  { path: '/asterdex/deposit-address?coin=USDT&network=BSC', method: 'GET', auth: false, description: 'Get AsterDEX deposit address (BSC)' },
+  { path: '/asterdex/config', method: 'GET', auth: false, description: 'Get AsterDEX supported coins/networks' },
 ];
 
 const DevTools = () => {
