@@ -293,15 +293,37 @@ export const useWeb3 = () => {
           const mintKey = new PublicKey(tokenAddress);
           const fromToken = await getAssociatedTokenAddress(mintKey, pubKey);
 
-          // AsterDEX returns `tokenVault` for SPL tokens. This is often a *token account*
-          // (owned by the SPL Token program), not a wallet owner address.
-          // If it is already a token account, transfer to it directly; otherwise derive ATA.
+          // AsterDEX returns `tokenVault` for SPL tokens - this IS the token account.
+          // We should transfer directly to it without deriving ATA.
+          // Only derive ATA if the recipient is a system wallet (not a token account).
+          let toToken: PublicKey;
+          
           const recipientInfo = await connection.getAccountInfo(recipientKey);
-          const toToken = recipientInfo?.owner?.equals(TOKEN_PROGRAM_ID)
-            ? recipientKey
-            : await getAssociatedTokenAddress(mintKey, recipientKey);
+          
+          if (recipientInfo) {
+            // Account exists on-chain
+            if (recipientInfo.owner.equals(TOKEN_PROGRAM_ID)) {
+              // It's a token account (like AsterDEX tokenVault) - use directly
+              toToken = recipientKey;
+              console.log("[Solana SPL] Using token account directly:", recipientKey.toBase58());
+            } else if (recipientInfo.owner.equals(SystemProgram.programId)) {
+              // It's a system wallet - derive ATA
+              toToken = await getAssociatedTokenAddress(mintKey, recipientKey);
+              console.log("[Solana SPL] Deriving ATA for wallet:", toToken.toBase58());
+            } else {
+              // Unknown program owner - trust the provided address (assume token account)
+              toToken = recipientKey;
+              console.log("[Solana SPL] Unknown owner, using directly:", recipientKey.toBase58());
+            }
+          } else {
+            // Account doesn't exist - for AsterDEX vault this is unexpected
+            // Trust the address since AsterDEX API explicitly provides tokenVault
+            console.warn("[Solana SPL] Account not found, using provided address:", recipientKey.toBase58());
+            toToken = recipientKey;
+          }
 
           actualRecipient = toToken.toBase58();
+          console.log("[Solana SPL] Final destination:", actualRecipient);
 
           // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
           const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));
