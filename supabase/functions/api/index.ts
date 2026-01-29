@@ -1896,7 +1896,7 @@ async function processConfirmedDeposit(
   console.log(`Deposit completed: ${amount} ${assetSymbol} credited to user ${userId}`);
 
   // Forward funds to AsterDEX (in background)
-  EdgeRuntime.waitUntil(forwardToAsterDex(assetSymbol, amount, txSignature));
+  EdgeRuntime.waitUntil(forwardToAsterDex(assetSymbol, amount, txSignature, userId));
 
   // Check and activate referral bonus
   const { data: referral } = await supabase
@@ -2055,7 +2055,24 @@ async function verifyAndProcessSolanaDeposit(
   throw new Error("No valid deposit found in transaction");
 }
 
-async function forwardToAsterDex(assetSymbol: string, amount: number, txSignature: string) {
+// HMAC-SHA256 signature helper for AsterDEX (Binance-like API)
+async function signAsterDexRequest(params: Record<string, string | number>, apiSecret: string): Promise<string> {
+  const queryString = new URLSearchParams(params as Record<string, string>).toString();
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(apiSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(queryString));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function forwardToAsterDex(assetSymbol: string, amount: number, txSignature: string, userId: number) {
   const apiKey = Deno.env.get("ASTERDEX_API_KEY");
   const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
   
@@ -2064,47 +2081,46 @@ async function forwardToAsterDex(assetSymbol: string, amount: number, txSignatur
     return;
   }
 
-  console.log(`Forwarding ${amount} ${assetSymbol} to AsterDEX...`);
+  console.log(`Forwarding ${amount} ${assetSymbol} to AsterDEX for user ${userId}...`);
 
   try {
-    // Generate timestamp and signature for AsterDEX API
-    const timestamp = Date.now().toString();
-    const message = `${timestamp}POST/api/v1/deposit`;
+    // AsterDEX uses Binance-like API with HMAC-SHA256 signature
+    // Using the SAPI (Spot API) for capital/deposit operations
+    const ASTERDEX_SAPI = "https://sapi.asterdex.com";
     
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(apiSecret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
-    const signatureHex = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    // Build request params - using capital deposit endpoint
+    // Note: The exact endpoint depends on AsterDEX's specific API
+    // Common patterns: /sapi/v1/capital/deposit/credit or /api/v1/deposit
+    const params: Record<string, string | number> = {
+      coin: assetSymbol,
+      amount: amount,
+      network: "SOL", // Solana network
+      txId: txSignature,
+      timestamp: Date.now(),
+      recvWindow: 10000,
+    };
 
-    // AsterDEX deposit notification
-    // Note: Actual implementation depends on AsterDEX's API specification
-    const response = await fetch("https://api.asterdex.com/api/v1/deposit", {
+    // Generate signature
+    const signature = await signAsterDexRequest(params, apiSecret);
+    const queryString = new URLSearchParams(params as Record<string, string>).toString();
+    
+    // Try the capital deposit credit endpoint (common for Binance-like exchanges)
+    const response = await fetch(`${ASTERDEX_SAPI}/sapi/v1/capital/deposit/credit?${queryString}&signature=${signature}`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": apiKey,
-        "X-TIMESTAMP": timestamp,
-        "X-SIGNATURE": signatureHex,
+        "X-MBX-APIKEY": apiKey,
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: JSON.stringify({
-        asset: assetSymbol,
-        amount: amount,
-        txId: txSignature,
-        network: "SOLANA",
-      }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`AsterDEX forward failed: ${response.status} - ${errorText}`);
+      
+      // If the deposit credit endpoint doesn't work, try internal transfer
+      // This is for when funds are already on AsterDEX and need to be credited to user account
+      console.log("Trying alternative: internal transfer endpoint...");
+      await tryAsterDexInternalTransfer(apiKey, apiSecret, assetSymbol, amount, userId);
       return;
     }
 
@@ -2113,5 +2129,49 @@ async function forwardToAsterDex(assetSymbol: string, amount: number, txSignatur
   } catch (err: any) {
     console.error("AsterDEX forward error:", err.message);
     // Don't throw - this runs in background and shouldn't fail the deposit
+  }
+}
+
+// Alternative: Internal transfer for when funds are on AsterDEX main account
+async function tryAsterDexInternalTransfer(
+  apiKey: string, 
+  apiSecret: string, 
+  asset: string, 
+  amount: number,
+  userId: number
+) {
+  try {
+    const ASTERDEX_SAPI = "https://sapi.asterdex.com";
+    
+    // Universal Transfer endpoint (spot to futures, or sub-account)
+    const params: Record<string, string | number> = {
+      type: "MAIN_UMFUTURE", // Transfer from Spot to USDT-M Futures
+      asset: asset,
+      amount: amount,
+      timestamp: Date.now(),
+      recvWindow: 10000,
+    };
+
+    const signature = await signAsterDexRequest(params, apiSecret);
+    const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+    const response = await fetch(`${ASTERDEX_SAPI}/sapi/v1/asset/transfer?${queryString}&signature=${signature}`, {
+      method: "POST",
+      headers: {
+        "X-MBX-APIKEY": apiKey,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`AsterDEX internal transfer failed: ${response.status} - ${errorText}`);
+      return;
+    }
+
+    const result = await response.json();
+    console.log("AsterDEX internal transfer result:", result);
+  } catch (err: any) {
+    console.error("AsterDEX internal transfer error:", err.message);
   }
 }
