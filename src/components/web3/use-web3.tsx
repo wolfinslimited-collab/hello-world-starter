@@ -293,37 +293,23 @@ export const useWeb3 = () => {
           const mintKey = new PublicKey(tokenAddress);
           const fromToken = await getAssociatedTokenAddress(mintKey, pubKey);
 
-          // AsterDEX returns `tokenVault` for SPL tokens - this IS the token account.
-          // We should transfer directly to it without deriving ATA.
-          // Only derive ATA if the recipient is a system wallet (not a token account).
-          let toToken: PublicKey;
-          
+          // IMPORTANT:
+          // For deposits, the backend must provide a *token vault* (token account) for SPL transfers.
+          // Deriving an ATA for a system wallet can route funds to a different address than shown.
           const recipientInfo = await connection.getAccountInfo(recipientKey);
-          
-          if (recipientInfo) {
-            // Account exists on-chain
-            if (recipientInfo.owner.equals(TOKEN_PROGRAM_ID)) {
-              // It's a token account (like AsterDEX tokenVault) - use directly
-              toToken = recipientKey;
-              console.log("[Solana SPL] Using token account directly:", recipientKey.toBase58());
-            } else if (recipientInfo.owner.equals(SystemProgram.programId)) {
-              // It's a system wallet - derive ATA
-              toToken = await getAssociatedTokenAddress(mintKey, recipientKey);
-              console.log("[Solana SPL] Deriving ATA for wallet:", toToken.toBase58());
-            } else {
-              // Unknown program owner - trust the provided address (assume token account)
-              toToken = recipientKey;
-              console.log("[Solana SPL] Unknown owner, using directly:", recipientKey.toBase58());
-            }
-          } else {
-            // Account doesn't exist - for AsterDEX vault this is unexpected
-            // Trust the address since AsterDEX API explicitly provides tokenVault
-            console.warn("[Solana SPL] Account not found, using provided address:", recipientKey.toBase58());
-            toToken = recipientKey;
+          if (!recipientInfo) {
+            throw new Error(
+              "Invalid Solana deposit address (not found on-chain). Please refresh the deposit address."
+            );
+          }
+          if (!recipientInfo.owner.equals(TOKEN_PROGRAM_ID)) {
+            throw new Error(
+              "Invalid Solana deposit address (expected SPL token account). Please refresh the deposit address."
+            );
           }
 
+          const toToken: PublicKey = recipientKey;
           actualRecipient = toToken.toBase58();
-          console.log("[Solana SPL] Final destination:", actualRecipient);
 
           // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
           const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));

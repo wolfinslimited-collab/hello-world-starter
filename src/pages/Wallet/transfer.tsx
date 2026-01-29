@@ -8,7 +8,7 @@ import { useWallet } from "hooks/use-query";
 import { AssetNetworkConfig } from ".";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
 
@@ -125,6 +125,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
   // Solana: show the *actual* receiving token account (may differ from the vault owner address)
   const [solanaReceiveAddress, setSolanaReceiveAddress] = useState<string | null>(null);
   const [loadingSolanaReceiveAddress, setLoadingSolanaReceiveAddress] = useState(false);
+  const [solanaDepositAddressError, setSolanaDepositAddressError] = useState<string | null>(null);
 
   // Set default network when asset changes
   useEffect(() => {
@@ -217,6 +218,11 @@ const Transfer = ({ modalType, asset, close }: any) => {
           throw new Error("Token mint address not found for Solana SPL transfer");
         }
 
+        // If the backend gave us a bad Solana deposit address, fail fast (do NOT send).
+        if (chainKey === "solana" && solanaDepositAddressError) {
+          throw new Error(solanaDepositAddressError);
+        }
+
         // 1. Execute Blockchain Transaction directly to AsterDEX contract
         const txRes = await provider.deposit(
           asterDexAddress, // Deposit directly to AsterDEX - single tx, minimal fees
@@ -307,16 +313,19 @@ const Transfer = ({ modalType, asset, close }: any) => {
     const run = async () => {
       if (modalType !== "deposit") {
         setSolanaReceiveAddress(null);
+        setSolanaDepositAddressError(null);
         return;
       }
 
       if (currentChainKey !== "solana") {
         setSolanaReceiveAddress(null);
+        setSolanaDepositAddressError(null);
         return;
       }
 
       if (!asterDexAddress || !resolvedTokenAddress) {
         setSolanaReceiveAddress(null);
+        setSolanaDepositAddressError(null);
         return;
       }
 
@@ -325,16 +334,28 @@ const Transfer = ({ modalType, asset, close }: any) => {
         const recipientKey = new PublicKey(asterDexAddress);
         const recipientInfo = await connection.getAccountInfo(recipientKey);
 
-        if (recipientInfo?.owner?.equals(TOKEN_PROGRAM_ID)) {
-          setSolanaReceiveAddress(asterDexAddress);
+        if (!recipientInfo) {
+          setSolanaReceiveAddress(null);
+          setSolanaDepositAddressError(
+            "Invalid Solana deposit address (not found on-chain). Please refresh the deposit address."
+          );
           return;
         }
 
-        const mintKey = new PublicKey(resolvedTokenAddress);
-        const ata = await getAssociatedTokenAddress(mintKey, recipientKey);
-        setSolanaReceiveAddress(ata.toBase58());
+        if (!recipientInfo.owner?.equals(TOKEN_PROGRAM_ID)) {
+          setSolanaReceiveAddress(null);
+          setSolanaDepositAddressError(
+            "Invalid Solana deposit address (expected token vault / token account). Please refresh the deposit address."
+          );
+          return;
+        }
+
+        // For SPL deposits we always send directly to the token vault.
+        setSolanaReceiveAddress(asterDexAddress);
+        setSolanaDepositAddressError(null);
       } catch {
         setSolanaReceiveAddress(null);
+        setSolanaDepositAddressError("Unable to validate Solana deposit address. Please try again.");
       } finally {
         setLoadingSolanaReceiveAddress(false);
       }
@@ -359,8 +380,27 @@ const Transfer = ({ modalType, asset, close }: any) => {
   // Can proceed with deposit?
   const canDeposit = useMemo(() => {
     if (modalType !== "deposit") return true;
-    return isWalletConnected && asterDexAddress && !loadingAsterDex && parseFloat(amount || "0") > 0;
-  }, [modalType, isWalletConnected, asterDexAddress, loadingAsterDex, amount]);
+    const baseOk =
+      isWalletConnected &&
+      asterDexAddress &&
+      !loadingAsterDex &&
+      parseFloat(amount || "0") > 0;
+
+    if (currentChainKey === "solana") {
+      return baseOk && !loadingSolanaReceiveAddress && !solanaDepositAddressError;
+    }
+
+    return baseOk;
+  }, [
+    modalType,
+    isWalletConnected,
+    asterDexAddress,
+    loadingAsterDex,
+    amount,
+    currentChainKey,
+    loadingSolanaReceiveAddress,
+    solanaDepositAddressError,
+  ]);
 
   if (!asset || !selectedNetConfig) {
     return <div className="py-8 text-center text-neutral-500">Loading...</div>;
@@ -434,7 +474,9 @@ const Transfer = ({ modalType, asset, close }: any) => {
                 <div className="space-y-2">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                      Vault / owner address
+                      {currentChainKey === "solana"
+                        ? "Token vault (receiving account)"
+                        : "Deposit address"}
                     </div>
                     <p className="break-all font-mono text-sm text-white">{asterDexAddress}</p>
                   </div>
@@ -449,13 +491,15 @@ const Transfer = ({ modalType, asset, close }: any) => {
                           <Loader2 className="size-3 animate-spin text-blue-400" />
                           <span className="text-xs text-neutral-400">Calculating…</span>
                         </div>
+                      ) : solanaDepositAddressError ? (
+                        <p className="text-xs text-red-400">{solanaDepositAddressError}</p>
                       ) : solanaReceiveAddress ? (
                         <p className="break-all font-mono text-sm text-white">{solanaReceiveAddress}</p>
                       ) : (
                         <p className="text-xs text-neutral-400">Unavailable</p>
                       )}
                       <p className="mt-1 text-[10px] text-neutral-500">
-                        On Solana, SPL tokens are received by a token account (this can differ from the vault address).
+                        For Solana USDC/USDT deposits we only allow sending to the AsterDEX token vault (token account).
                       </p>
                     </div>
                   ) : null}
