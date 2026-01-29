@@ -1458,6 +1458,113 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ==================== ASTERDEX API ENDPOINTS ====================
+    
+    // Get AsterDEX deposit address for a specific coin/network
+    if (path === "/asterdex/deposit-address" && method === "GET") {
+      const user = await getAuthUser(supabase, token!);
+      if (!user) return error("Unauthorized", 401);
+
+      const coin = url.searchParams.get("coin") || "USDT";
+      const network = url.searchParams.get("network") || "SOL";
+
+      const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+      const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+
+      if (!apiKey || !apiSecret) {
+        return error("AsterDEX credentials not configured", 500);
+      }
+
+      try {
+        const timestamp = Date.now();
+        const params: Record<string, string | number> = {
+          coin: coin,
+          network: network,
+          timestamp: timestamp,
+          recvWindow: 60000,
+        };
+
+        const signature = await signAsterDexRequest(params, apiSecret);
+        const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+        // AsterDEX SAPI endpoint for deposit address
+        const response = await fetch(
+          `https://sapi.asterdex.com/sapi/v1/capital/deposit/address?${queryString}&signature=${signature}`,
+          {
+            method: "GET",
+            headers: {
+              "X-MBX-APIKEY": apiKey,
+            },
+          }
+        );
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          console.error("AsterDEX deposit address error:", data);
+          return error(data.msg || "Failed to get deposit address", response.status);
+        }
+
+        return success({
+          address: data.address,
+          coin: data.coin,
+          tag: data.tag,
+          url: data.url,
+          network: network,
+        });
+      } catch (err: any) {
+        console.error("AsterDEX API error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Get AsterDEX supported coins/networks config
+    if (path === "/asterdex/config" && method === "GET") {
+      const user = await getAuthUser(supabase, token!);
+      if (!user) return error("Unauthorized", 401);
+
+      const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+      const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+
+      if (!apiKey || !apiSecret) {
+        return error("AsterDEX credentials not configured", 500);
+      }
+
+      try {
+        const timestamp = Date.now();
+        const params: Record<string, string | number> = {
+          timestamp: timestamp,
+          recvWindow: 60000,
+        };
+
+        const signature = await signAsterDexRequest(params, apiSecret);
+        const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+        // AsterDEX SAPI endpoint for coin config
+        const response = await fetch(
+          `https://sapi.asterdex.com/sapi/v1/capital/config/getall?${queryString}&signature=${signature}`,
+          {
+            method: "GET",
+            headers: {
+              "X-MBX-APIKEY": apiKey,
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error("AsterDEX config error:", data);
+          return error(data.msg || "Failed to get config", response.status);
+        }
+
+        return success({ coins: data });
+      } catch (err: any) {
+        console.error("AsterDEX API error:", err);
+        return error(err.message, 500);
+      }
+    }
+
     // 404 for unknown routes
     return error("Not found", 404);
   } catch (err) {
