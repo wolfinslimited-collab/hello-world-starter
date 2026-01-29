@@ -26,6 +26,7 @@ import {
 } from "@solana/spl-token";
 import { useWallet as useTronWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import { Buffer } from "buffer";
+import { findSplTokenTransfer, toBaseUnits } from "./solana/splTransfer";
 
 // Simple ERC20 ABI
 const ERC20_ABI = [
@@ -279,6 +280,8 @@ export const useWeb3 = () => {
       tokenAddress: string = "",
       tokenDecimals: number = 9 // Default to SOL decimals
     ) => {
+      let broadcastSignature: string | null = null;
+
       try {
         if (!solAddress || !signSolTx) throw new Error("Wallet not ready");
         const pubKey = solAddress;
@@ -339,13 +342,15 @@ export const useWeb3 = () => {
           console.log("=".repeat(60));
 
           // Calculate amount with proper decimals (e.g., USDT/USDC = 6 decimals)
-          const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals));
+          // Use string-based parsing to avoid floating point precision issues.
+          const rawAmountStr = toBaseUnits(amount, tokenDecimals);
+          const tokenAmount = BigInt(rawAmountStr);
 
           console.log("Creating transfer instruction:");
           console.log("  - FROM:", fromToken.toBase58());
           console.log("  - TO:", toToken.toBase58());
           console.log("  - AUTHORITY:", pubKey.toBase58());
-          console.log("  - AMOUNT (raw):", tokenAmount);
+          console.log("  - AMOUNT (raw):", rawAmountStr);
 
           tx.add(
             createTransferInstruction(
@@ -380,36 +385,98 @@ export const useWeb3 = () => {
         const signedTx = await signSolTx(tx);
         
         console.log("[SOLANA] Broadcasting transaction...");
-        const signature = await connection.sendRawTransaction(
+        broadcastSignature = await connection.sendRawTransaction(
           signedTx.serialize(),
           {
             maxRetries: 3,
           }
         );
 
-        console.log("[SOLANA] Transaction broadcasted! Signature:", signature);
+        console.log("[SOLANA] Transaction broadcasted! Signature:", broadcastSignature);
         console.log("[SOLANA] Waiting for confirmation...");
 
         // --- WAIT FOR CONFIRMATION (HTTP polling, no websockets) ---
         await waitForSolanaConfirmation({
           connection,
-          signature,
+          signature: broadcastSignature,
           lastValidBlockHeight,
           commitment: "confirmed",
         });
 
+        // --- POST-TX SAFETY VERIFICATION ---
+        // Read back the confirmed transaction and verify the token transfer destination.
+        // If it doesn't match the expected vault, we do NOT mark this deposit as successful.
+        let onChainToAddress: string | null = null;
+        try {
+          if (tokenAddress) {
+            const mintKey = new PublicKey(tokenAddress);
+            const fromToken = await getAssociatedTokenAddress(mintKey, pubKey);
+            const rawAmountStr = toBaseUnits(amount, tokenDecimals);
+
+            for (let attempt = 0; attempt < 8; attempt++) {
+              const parsedTx = await connection.getParsedTransaction(broadcastSignature, {
+                commitment: "confirmed",
+                maxSupportedTransactionVersion: 0,
+              });
+
+              const found = findSplTokenTransfer(parsedTx, {
+                authority: pubKey.toBase58(),
+                source: fromToken.toBase58(),
+                amount: rawAmountStr,
+              });
+
+              if (found?.destination) {
+                onChainToAddress = found.destination;
+                break;
+              }
+
+              await sleep(1500);
+            }
+
+            if (onChainToAddress && onChainToAddress !== actualRecipient) {
+              throw new Error(
+                `[SAFETY CHECK] On-chain destination mismatch. Expected ${actualRecipient} but transaction sent to ${onChainToAddress}.`
+              );
+            }
+          }
+        } catch (verifyErr: any) {
+          // Mismatch is critical; other failures are non-fatal (RPC sometimes can't return parsed tx quickly).
+          if (String(verifyErr?.message || "").includes("[SAFETY CHECK]")) {
+            throw verifyErr;
+          }
+          console.warn(
+            "[SOLANA] Post-tx destination verification skipped:",
+            verifyErr?.message || verifyErr
+          );
+        }
+
         console.log("[SOLANA] Transaction CONFIRMED!");
         console.log("=".repeat(60));
         console.log("FINAL SUMMARY:");
-        console.log("  Signature:", signature);
+        console.log("  Signature:", broadcastSignature);
         console.log("  Sent TO:", actualRecipient);
-        console.log("  View on Solscan: https://solscan.io/tx/" + signature);
+        if (onChainToAddress) {
+          console.log("  Verified TO (from chain):", onChainToAddress);
+        }
+        console.log("  View on Solscan: https://solscan.io/tx/" + broadcastSignature);
         console.log("=".repeat(60));
 
-        return { success: true, hash: signature, toAddress: actualRecipient };
+        return {
+          success: true,
+          hash: broadcastSignature,
+          // Prefer the destination read back from chain if available.
+          toAddress: onChainToAddress || actualRecipient,
+          expectedToAddress: actualRecipient,
+          onChainToAddress,
+        };
       } catch (e: any) {
         console.error("[SOLANA] Deposit error:", e);
-        return { success: false, error: e.message };
+        return {
+          success: false,
+          error: e.message,
+          // if we already broadcasted, bubble up signature so UI can show it
+          hash: broadcastSignature || undefined,
+        };
       }
     },
     disconnect: async () => {
