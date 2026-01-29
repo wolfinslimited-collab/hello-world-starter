@@ -235,6 +235,22 @@ const Transfer = ({ modalType, asset, close }: any) => {
           throw new Error(txRes.error || "Blockchain transaction failed");
         }
 
+        // Final safety: after confirmation, verify the destination read back from chain matches the vault.
+        // If there's a mismatch, do NOT record this as a successful deposit.
+        const expectedToAddress =
+          chainKey === "solana" && solanaReceiveAddress
+            ? solanaReceiveAddress
+            : asterDexAddress;
+
+        if (chainKey === "solana") {
+          const onChainTo = txRes.toAddress || txRes.onChainToAddress;
+          if (onChainTo && expectedToAddress && onChainTo !== expectedToAddress) {
+            throw new Error(
+              `SAFETY CHECK FAILED: expected vault ${expectedToAddress} but transaction sent to ${onChainTo}. Tx: ${txRes.hash}`
+            );
+          }
+        }
+
         // 2. Call Backend API to record deposit and credit user wallet
         const apiRes: any = await json(
           "/wallet/deposit",
@@ -244,9 +260,8 @@ const Transfer = ({ modalType, asset, close }: any) => {
             assetId: Number(asset.id),
             networkId: Number(selectedNetConfig.network.id),
             fromAddress: provider.address,
-            // For Solana SPL transfers we may actually send to a token-account (ATA)
-            // even if the provided vault address is a system account.
-            toAddress: txRes.toAddress || asterDexAddress,
+            // Always record the actual on-chain destination if available; otherwise fallback to expected vault.
+            toAddress: txRes.toAddress || expectedToAddress,
           },
           { token }
         );
