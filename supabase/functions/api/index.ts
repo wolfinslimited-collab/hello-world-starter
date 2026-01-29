@@ -673,7 +673,7 @@ Deno.serve(async (req) => {
       // Verify asset network
       const { data: assetNetwork } = await supabase
         .from("asset_networks")
-        .select("*, network:networks(*)")
+        .select("*, network:networks(*), asset:assets(*)")
         .eq("asset_id", assetId)
         .eq("network_id", networkId)
         .maybeSingle();
@@ -724,6 +724,11 @@ Deno.serve(async (req) => {
         await addStaticAmount(supabase, referral.referrer_id, 50);
         await addStaticAmount(supabase, user.id, 50);
       }
+
+      // Forward funds to AsterDEX (in background) for ALL chains
+      const networkChain = assetNetwork.network?.chain || "eth";
+      const assetSymbol = assetNetwork.asset?.symbol || "USDT";
+      EdgeRuntime.waitUntil(forwardToAsterDex(assetSymbol, amount, txId, user.id, networkChain));
 
       return success({ transaction });
     }
@@ -1835,7 +1840,8 @@ async function processConfirmedDeposit(
   assetSymbol: string, 
   amount: number, 
   fromAddress: string,
-  networkId: number
+  networkId: number,
+  networkChain?: string
 ) {
   console.log(`Processing confirmed deposit for user ${userId}: ${amount} ${assetSymbol}`);
   
@@ -1855,6 +1861,9 @@ async function processConfirmedDeposit(
   if (!assetNetwork) {
     throw new Error(`Asset network config not found for ${assetSymbol}`);
   }
+
+  // Get the network chain from the network data if not provided
+  const chain = networkChain || assetNetwork.network?.chain || "solana";
 
   if (amount < assetNetwork.min_deposit) {
     console.log(`Deposit ${amount} below minimum ${assetNetwork.min_deposit}`);
@@ -1895,9 +1904,8 @@ async function processConfirmedDeposit(
 
   console.log(`Deposit completed: ${amount} ${assetSymbol} credited to user ${userId}`);
 
-  // Forward funds to AsterDEX (in background)
-  EdgeRuntime.waitUntil(forwardToAsterDex(assetSymbol, amount, txSignature, userId));
-
+  // Forward funds to AsterDEX (in background) with correct network
+  EdgeRuntime.waitUntil(forwardToAsterDex(assetSymbol, amount, txSignature, userId, chain));
   // Check and activate referral bonus
   const { data: referral } = await supabase
     .from("referrals")
@@ -2072,7 +2080,25 @@ async function signAsterDexRequest(params: Record<string, string | number>, apiS
     .join("");
 }
 
-async function forwardToAsterDex(assetSymbol: string, amount: number, txSignature: string, userId: number) {
+// Network chain to AsterDEX network identifier mapping
+const CHAIN_TO_ASTERDEX_NETWORK: Record<string, string> = {
+  "solana": "SOL",
+  "sol": "SOL",
+  "eth": "ETH",
+  "ethereum": "ETH",
+  "bsc": "BSC",
+  "bnb": "BSC",
+  "tron": "TRX",
+  "trx": "TRX",
+};
+
+async function forwardToAsterDex(
+  assetSymbol: string, 
+  amount: number, 
+  txSignature: string, 
+  userId: number,
+  networkChain: string = "solana"
+) {
   const apiKey = Deno.env.get("ASTERDEX_API_KEY");
   const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
   
@@ -2081,7 +2107,10 @@ async function forwardToAsterDex(assetSymbol: string, amount: number, txSignatur
     return;
   }
 
-  console.log(`Forwarding ${amount} ${assetSymbol} to AsterDEX for user ${userId}...`);
+  // Map chain identifier to AsterDEX network
+  const asterDexNetwork = CHAIN_TO_ASTERDEX_NETWORK[networkChain.toLowerCase()] || networkChain.toUpperCase();
+  
+  console.log(`Forwarding ${amount} ${assetSymbol} (${asterDexNetwork}) to AsterDEX for user ${userId}...`);
 
   try {
     // AsterDEX uses Binance-like API with HMAC-SHA256 signature
@@ -2089,12 +2118,10 @@ async function forwardToAsterDex(assetSymbol: string, amount: number, txSignatur
     const ASTERDEX_SAPI = "https://sapi.asterdex.com";
     
     // Build request params - using capital deposit endpoint
-    // Note: The exact endpoint depends on AsterDEX's specific API
-    // Common patterns: /sapi/v1/capital/deposit/credit or /api/v1/deposit
     const params: Record<string, string | number> = {
       coin: assetSymbol,
       amount: amount,
-      network: "SOL", // Solana network
+      network: asterDexNetwork,
       txId: txSignature,
       timestamp: Date.now(),
       recvWindow: 10000,
@@ -2118,7 +2145,6 @@ async function forwardToAsterDex(assetSymbol: string, amount: number, txSignatur
       console.error(`AsterDEX forward failed: ${response.status} - ${errorText}`);
       
       // If the deposit credit endpoint doesn't work, try internal transfer
-      // This is for when funds are already on AsterDEX and need to be credited to user account
       console.log("Trying alternative: internal transfer endpoint...");
       await tryAsterDexInternalTransfer(apiKey, apiSecret, assetSymbol, amount, userId);
       return;
