@@ -22,7 +22,8 @@
       "type": "TVM",
       "logo": "https://cryptologos.cc/logos/tron-trx-logo.png",
       "mainAddress": "TJrzKBWA2ixDnNqt7F5biVFyDivwJiY9h7",
-      "isActive": true
+      "isActive": false,
+      "note": "TRON is NOT supported by AsterDEX v3 API"
     },
     {
       "name": "Solana",
