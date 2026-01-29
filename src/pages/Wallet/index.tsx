@@ -62,14 +62,23 @@ export interface NetworkMetadata {
 export interface AssetNetworkConfig {
   id: number;
   assetId: number;
+  asset_id?: number; // API uses snake_case
   networkId: number;
+  network_id?: number; // API uses snake_case
   isActive: boolean;
+  is_active?: boolean; // API uses snake_case
   canDeposit: boolean;
+  can_deposit?: boolean; // API uses snake_case
   canWithdraw: boolean;
+  can_withdraw?: boolean; // API uses snake_case
   minWithdraw: number;
+  min_withdraw?: number; // API uses snake_case
   minDeposit: number;
+  min_deposit?: number; // API uses snake_case
   withdrawFee: number;
-  contractAddress: string;
+  withdraw_fee?: number; // API uses snake_case
+  contractAddress?: string; // camelCase version
+  contract_address?: string; // API uses snake_case - SPL token mint or ERC20 address
   decimals: number;
   network: NetworkMetadata;
 }

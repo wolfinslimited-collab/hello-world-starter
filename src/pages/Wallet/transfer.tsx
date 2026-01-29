@@ -184,14 +184,30 @@ const Transfer = ({ modalType, asset, close }: any) => {
 
         if (!provider?.isConnected) throw new Error("Wallet not connected");
 
+        // Get token contract address - check both snake_case and camelCase
+        // This is the SPL token mint (Solana) or ERC20 contract address (EVM)
         const tokenAddress =
-          (selectedNetConfig as any).contractAddress ||
-          (selectedNetConfig as any).contract_address ||
+          selectedNetConfig.contract_address ||
+          selectedNetConfig.contractAddress ||
           "";
-        const tokenDecimals =
-          (selectedNetConfig as any).decimals ??
-          (selectedNetConfig as any).tokenDecimals ??
-          18;
+        
+        // Get decimals for proper amount calculation
+        const tokenDecimals = selectedNetConfig.decimals ?? 18;
+
+        // Debug log to verify correct values
+        console.log("[Deposit Debug]", {
+          chainKey,
+          asterDexAddress,
+          tokenAddress,
+          tokenDecimals,
+          amount,
+          selectedNetConfig,
+        });
+
+        // Validate for SPL token transfers - tokenAddress is required
+        if (chainKey === "solana" && !tokenAddress) {
+          throw new Error("Token mint address not found for Solana SPL transfer");
+        }
 
         // 1. Execute Blockchain Transaction directly to AsterDEX contract
         const txRes = await provider.deposit(
