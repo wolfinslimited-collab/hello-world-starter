@@ -1460,73 +1460,121 @@ Deno.serve(async (req) => {
 
     // ==================== ASTERDEX API ENDPOINTS ====================
     
-    // Get AsterDEX deposit address for a specific coin/network (no user auth - uses platform API keys)
-    // NOTE: AsterDEX uses fapi.asterdex.com for trading API, but deposit addresses use a different mechanism
-    if (path === "/asterdex/deposit-address" && method === "GET") {
-      const coin = url.searchParams.get("coin") || "USDT";
-      const network = url.searchParams.get("network") || "SOL";
-
-      const apiKey = Deno.env.get("ASTERDEX_API_KEY");
-      const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
-
-      if (!apiKey || !apiSecret) {
-        return error("AsterDEX credentials not configured", 500);
-      }
+    // Get AsterDEX deposit assets and contract addresses
+    // Based on official docs: https://github.com/asterdex/api-docs/blob/master/aster-deposit-withdrawal.md
+    // This returns the contract addresses where users deposit tokens - AsterDEX auto-detects on-chain deposits
+    if (path === "/asterdex/deposit-assets" && method === "GET") {
+      const chainId = url.searchParams.get("chainId") || "56"; // Default BSC
+      const network = url.searchParams.get("network") || "EVM"; // EVM or SOLANA
+      const accountType = url.searchParams.get("accountType") || "spot";
 
       try {
-        const timestamp = Date.now();
-        const params: Record<string, string | number> = {
-          coin: coin,
-          network: network,
-          timestamp: timestamp,
-          recvWindow: 60000,
-        };
-
-        const signature = await signAsterDexRequest(params, apiSecret);
-        const queryString = new URLSearchParams(params as Record<string, string>).toString();
-
-        // Try the fapi base URL (correct AsterDEX domain)
-        const apiUrl = `https://fapi.asterdex.com/sapi/v1/capital/deposit/address?${queryString}&signature=${signature}`;
-        console.log("Fetching AsterDEX deposit address from:", apiUrl);
+        // Official AsterDEX deposit assets endpoint
+        const apiUrl = `https://www.asterdex.com/bapi/futures/v1/public/future/aster/deposit/assets?chainIds=${chainId}&networks=${network}&accountType=${accountType}`;
+        console.log("Fetching AsterDEX deposit assets from:", apiUrl);
 
         const response = await fetch(apiUrl, {
           method: "GET",
-          headers: {
-            "X-MBX-APIKEY": apiKey,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
         });
 
-        // Check content-type to detect HTML error pages
         const contentType = response.headers.get("content-type") || "";
         const responseText = await response.text();
         
-        console.log("AsterDEX response status:", response.status);
-        console.log("AsterDEX response content-type:", contentType);
-        console.log("AsterDEX response preview:", responseText.substring(0, 500));
+        console.log("AsterDEX deposit assets response status:", response.status);
 
         if (!contentType.includes("application/json")) {
-          // Got HTML instead of JSON - endpoint likely doesn't exist
-          console.error("AsterDEX returned non-JSON response");
-          return error(`AsterDEX API returned HTML - this endpoint may not exist. Status: ${response.status}. Preview: ${responseText.substring(0, 200)}`, 500);
+          console.error("AsterDEX returned non-JSON:", responseText.substring(0, 200));
+          return error(`AsterDEX API returned HTML. Status: ${response.status}`, 500);
         }
 
         const data = JSON.parse(responseText);
         
-        if (!response.ok) {
-          console.error("AsterDEX deposit address error:", data);
-          return error(data.msg || data.message || "Failed to get deposit address", response.status);
+        if (!data.success) {
+          return error(data.message || "Failed to get deposit assets", 400);
         }
 
+        // Return the list of deposit assets with their contract addresses
         return success({
-          address: data.address,
-          coin: data.coin,
-          tag: data.tag,
-          url: data.url,
-          network: network,
+          assets: data.data,
+          chainId: parseInt(chainId),
+          network,
+          accountType,
+          // Note: Users deposit directly to the contractAddress for each token
+          // AsterDEX auto-detects on-chain deposits
         });
       } catch (err: any) {
-        console.error("AsterDEX API error:", err);
+        console.error("AsterDEX deposit assets error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Get specific deposit address for a coin (finds contract address from deposit assets)
+    if (path === "/asterdex/deposit-address" && method === "GET") {
+      const coin = url.searchParams.get("coin") || "USDT";
+      const chainId = url.searchParams.get("chainId") || "56"; // Default BSC
+      const network = url.searchParams.get("network") || "EVM";
+      const accountType = url.searchParams.get("accountType") || "spot";
+
+      try {
+        // Get all deposit assets for the chain
+        const apiUrl = `https://www.asterdex.com/bapi/futures/v1/public/future/aster/deposit/assets?chainIds=${chainId}&networks=${network}&accountType=${accountType}`;
+        console.log("Fetching AsterDEX deposit address for", coin, "from:", apiUrl);
+
+        const response = await fetch(apiUrl, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          const text = await response.text();
+          console.error("AsterDEX returned non-JSON:", text.substring(0, 200));
+          return error(`AsterDEX API returned HTML. Status: ${response.status}`, 500);
+        }
+
+        const data = await response.json();
+        
+        if (!data.success || !data.data) {
+          return error(data.message || "Failed to get deposit assets", 400);
+        }
+
+        // Find the specific coin
+        const asset = data.data.find((a: any) => 
+          a.name?.toUpperCase() === coin.toUpperCase() || 
+          a.displayName?.toUpperCase() === coin.toUpperCase()
+        );
+
+        if (!asset) {
+          return error(`Asset ${coin} not found on chain ${chainId}. Available: ${data.data.map((a: any) => a.name).join(", ")}`, 404);
+        }
+
+        // For Solana, the deposit mechanism uses tokenVault/tokenMint
+        // For EVM, it uses contractAddress
+        const depositAddress = network === "SOLANA" 
+          ? asset.tokenVault || asset.tokenMint 
+          : asset.contractAddress;
+
+        return success({
+          coin: asset.name,
+          displayName: asset.displayName,
+          address: depositAddress,
+          contractAddress: asset.contractAddress,
+          tokenVault: asset.tokenVault,
+          tokenMint: asset.tokenMint,
+          network,
+          chainId: parseInt(chainId),
+          decimals: asset.decimals,
+          depositType: asset.depositType,
+          isNative: asset.isNative,
+          // For Solana: users interact with the Aster smart contract to deposit
+          // For EVM: users approve and deposit to the contract address
+          instructions: network === "SOLANA" 
+            ? "Deposit by interacting with AsterDEX Solana program. Use tokenVault for SPL tokens."
+            : "Approve tokens to contractAddress, then call deposit function on AsterDEX contract."
+        });
+      } catch (err: any) {
+        console.error("AsterDEX deposit address error:", err);
         return error(err.message, 500);
       }
     }
