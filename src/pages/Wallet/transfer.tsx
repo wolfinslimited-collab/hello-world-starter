@@ -3,15 +3,26 @@ import useStorage from "context";
 import { Check, AlertCircle, Loader2, ExternalLink } from "lucide-react";
 import { clsx } from "clsx";
 import { useWeb3 } from "components/web3/use-web3";
-import { json } from "utils/request";
+import { json, get } from "utils/request";
 import { useWallet } from "hooks/use-query";
 import { AssetNetworkConfig } from ".";
-import { useConnection } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddress, getAccount } from "@solana/spl-token";
-import { walletApi } from "../../integrations/supabase/api";
 
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
+
+// Fetch AsterDEX deposit address
+const fetchAsterDexAddress = async (coin: string, chainId: number): Promise<string | null> => {
+  try {
+    const network = chainId === 101 ? "SOLANA" : "EVM";
+    const result = await get(`/asterdex/deposit-address?coin=${coin}&chainId=${chainId}&network=${network}`);
+    if (result?.success && result?.depositAddress) {
+      return result.depositAddress;
+    }
+    return null;
+  } catch (err) {
+    console.error("Error fetching AsterDEX address:", err);
+    return null;
+  }
+};
 
 const BUTTON_PRIMARY_CLASSES =
   "px-5 py-3 w-full justify-center text-sm font-semibold text-white bg-neutral-900 dark:bg-white dark:text-black rounded-xl hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed";
@@ -25,7 +36,6 @@ const InputGroup = ({
   type = "text",
   helperText,
   error,
-  bottomElement,
 }: any) => (
   <div className="space-y-1.5">
     <label className="pl-1 text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
@@ -60,17 +70,36 @@ const InputGroup = ({
         </span>
       )}
     </div>
-    {bottomElement}
   </div>
 );
 
- const Transfer = ({ modalType, asset, close, onSuccess }: any) => {
+// Map network chain/slug to AsterDEX chainId
+const getAsterDexChainId = (network: any): number | null => {
+  const chain = (network?.chain || network?.slug || "").toLowerCase();
+  switch (chain) {
+    case "bsc":
+    case "bnb":
+      return 56;
+    case "eth":
+    case "ethereum":
+      return 1;
+    case "arb":
+    case "arbitrum":
+      return 42161;
+    case "sol":
+    case "solana":
+      return 101;
+    default:
+      return null;
+  }
+};
+
+const Transfer = ({ modalType, asset, close }: any) => {
   const {
     setting: { token },
   } = useStorage();
 
   const web3 = useWeb3();
-  const { connection } = useConnection();
   const { fetchWallet } = useWallet(false);
   const [selectedNetConfig, setSelectedNetConfig] =
     useState<AssetNetworkConfig | null>(null);
@@ -81,233 +110,121 @@ const InputGroup = ({
   >("idle");
   const [feedback, setFeedback] = useState("");
   
-  // Deposit destination: "platform" for internal wallet, "asterdex" for direct trading
-  const [depositDestination, setDepositDestination] = useState<"platform" | "asterdex">("platform");
-  
   // AsterDEX deposit address state
   const [asterDexAddress, setAsterDexAddress] = useState<string | null>(null);
   const [loadingAsterDex, setLoadingAsterDex] = useState(false);
-  
-  // Blockchain balance state
-  const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
-  const [loadingBalance, setLoadingBalance] = useState(false);
 
-  // 1. Get Chain Key - normalize to match web3.wallets keys
-  // Note: API returns 'chain' property, not 'slug'
-  const currentChainKey = useMemo(() => {
-    if (!selectedNetConfig) return null;
-    const chain = (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
-    // Map chain values to web3.wallets keys
-    if (chain === "sol" || chain === "solana") return "solana";
-    if (chain === "eth" || chain === "ethereum") return "eth";
-    if (chain === "bsc" || chain === "binance") return "bsc";
-    if (chain === "tron" || chain === "trx") return "tron";
-    return chain;
-  }, [selectedNetConfig]);
-
-  // Get current wallet provider
-  const currentWallet = useMemo(() => {
-    if (!currentChainKey || !web3.wallets) return null;
-    return (web3.wallets as any)[currentChainKey] || null;
-  }, [currentChainKey, web3.wallets]);
-
-  // Determine whether *any* wallet is connected (even if on the wrong network)
-  const isAnyWalletConnected = web3?.isConnected === true;
-
-  // What chain do we expect, based on the selected deposit network?
-  const expectedActiveChain = useMemo(() => {
-    if (!currentChainKey) return null;
-    if (currentChainKey === "solana") return "SOLANA";
-    if (currentChainKey === "tron") return "TRON";
-    if (currentChainKey === "eth") return "ETH";
-    if (currentChainKey === "bsc") return "BSC";
-    return null;
-  }, [currentChainKey]);
-
-  // 2. Check Wallet Connection
-  // IMPORTANT: for EVM wallets, your useWeb3 marks eth/bsc as connected ONLY when chain.id matches.
-  // If the user is connected on a different EVM chain, we should show "Switch network" instead of "Connect".
-  const isWalletConnected = useMemo(() => {
-    if (!expectedActiveChain) return false;
-    return web3?.activeChain === expectedActiveChain;
-  }, [expectedActiveChain, web3?.activeChain]);
-
-  const needsNetworkSwitch = useMemo(() => {
-    if (!expectedActiveChain) return false;
-    return isAnyWalletConnected && !isWalletConnected;
-  }, [expectedActiveChain, isAnyWalletConnected, isWalletConnected]);
-
-  // Fetch blockchain balance ONCE when wallet connects or network changes
-  // Using a ref to prevent multiple calls
-  const balanceFetchedRef = React.useRef<string | null>(null);
-  
+  // Set default network when asset changes
   useEffect(() => {
-    const fetchBlockchainBalance = async () => {
-      if (!isWalletConnected || !currentWallet || !selectedNetConfig) {
-        setBlockchainBalance(null);
-        balanceFetchedRef.current = null;
-        return;
-      }
+    if (asset) {
+      const activeNet = asset.networks.find((n: any) => n.isActive !== false && n.is_active !== false);
+      setSelectedNetConfig(activeNet || asset.networks[0] || null);
+    }
+  }, [asset]);
 
-      // Create a unique key for this wallet + network combo to prevent duplicate fetches
-      const fetchKey = `${currentWallet.address}-${selectedNetConfig.id}`;
-      if (balanceFetchedRef.current === fetchKey) {
-        return; // Already fetched for this combo
-      }
+  // Fetch AsterDEX deposit address when network changes (for deposits)
+  useEffect(() => {
+    if (modalType !== "deposit" || !selectedNetConfig || !asset) {
+      setAsterDexAddress(null);
+      return;
+    }
 
-      setLoadingBalance(true);
+    const chainId = getAsterDexChainId(selectedNetConfig.network);
+    if (!chainId) {
+      setAsterDexAddress(null);
+      return;
+    }
+
+    const fetchAddress = async () => {
+      setLoadingAsterDex(true);
       try {
-        // Get token contract address - support both camelCase and snake_case from API
-        const tokenContractAddress = selectedNetConfig.contractAddress || 
-          (selectedNetConfig as any).contract_address || null;
-        
-        // Get decimals (default to 6 for stablecoins, 9 for native)
-        const tokenDecimals = selectedNetConfig.decimals || 
-          (selectedNetConfig as any).decimals || 6;
-
-        // For Solana
-        if (currentChainKey === "solana" && currentWallet.address) {
-          const pubKey = new PublicKey(currentWallet.address);
-          
-          if (tokenContractAddress) {
-            // SPL Token balance (USDC, USDT, etc.)
-            console.log("Fetching SPL token balance for:", tokenContractAddress);
-            const mintKey = new PublicKey(tokenContractAddress);
-            try {
-              const tokenAccount = await getAssociatedTokenAddress(mintKey, pubKey);
-              const accountInfo = await getAccount(connection, tokenAccount);
-              const balance = Number(accountInfo.amount) / Math.pow(10, tokenDecimals);
-              setBlockchainBalance(balance.toFixed(tokenDecimals > 4 ? 4 : tokenDecimals));
-            } catch (e) {
-              console.log("Token account not found or empty:", e);
-              setBlockchainBalance("0.00");
-            }
-          } else {
-            // Native SOL balance (no contract address)
-            console.log("Fetching native SOL balance");
-            const balance = await connection.getBalance(pubKey);
-            setBlockchainBalance((balance / 1e9).toFixed(4));
-          }
-        } else {
-          // For EVM chains, we would need to add balance fetching logic
-          setBlockchainBalance(null);
-        }
-        
-        // Mark this combo as fetched
-        balanceFetchedRef.current = fetchKey;
+        const addr = await fetchAsterDexAddress(asset.symbol, chainId);
+        setAsterDexAddress(addr);
       } catch (err) {
-        console.error("Error fetching blockchain balance:", err);
-        setBlockchainBalance(null);
+        console.error("Error fetching AsterDEX address:", err);
+        setAsterDexAddress(null);
       } finally {
-        setLoadingBalance(false);
+        setLoadingAsterDex(false);
       }
     };
 
-    fetchBlockchainBalance();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWalletConnected, currentWallet?.address, selectedNetConfig?.id, currentChainKey]);
+    fetchAddress();
+  }, [modalType, selectedNetConfig?.id, asset?.symbol]);
+
+  // Reset state when network changes
+  useEffect(() => {
+    setAmount("");
+    setStatus("idle");
+    setFeedback("");
+  }, [selectedNetConfig?.id]);
 
   const handleTransaction = async () => {
     if (!selectedNetConfig || !asset) return;
     setStatus("processing");
     setFeedback("");
 
-    // Optional delay for UI feeling
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     try {
       const numAmount = parseFloat(amount);
       if (isNaN(numAmount) || numAmount <= 0) throw new Error("Invalid amount");
+      
       if (modalType === "deposit") {
-        // Support both snake_case (API) and camelCase formats
-        const minDepositValue = (selectedNetConfig as any).min_deposit ?? selectedNetConfig.minDeposit ?? 0;
-        if (numAmount < minDepositValue)
-          throw new Error(
-            `Minimum deposit is ${minDepositValue} ${asset.symbol}`
-          );
+        // DEPOSIT FLOW: User deposits directly to AsterDEX, backend credits wallet
+        if (!asterDexAddress) {
+          throw new Error("AsterDEX deposit address not available for this network");
+        }
 
-        // Use chain property (API returns 'chain', not 'slug')
-        const chain = (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
-        if (!chain) throw new Error("Network chain not configured");
-        
-        let normalizedChainKey: string = chain;
-        if (chain === "sol" || chain === "solana") normalizedChainKey = "solana";
-        else if (chain === "eth" || chain === "ethereum") normalizedChainKey = "eth";
-        else if (chain === "bsc" || chain === "binance") normalizedChainKey = "bsc";
-        else if (chain === "tron" || chain === "trx") normalizedChainKey = "tron";
-
-        const provider = (web3.wallets as any)[normalizedChainKey];
+        const chainKey = (selectedNetConfig.network?.chain || selectedNetConfig.network?.slug || "")?.toLowerCase();
+        const provider = (web3.wallets as any)[chainKey];
 
         if (!provider?.isConnected) throw new Error("Wallet not connected");
 
-        // Determine deposit address based on destination
-        let depositAddress: string | null | undefined;
-        
-        if (depositDestination === "asterdex" && asterDexAddress) {
-          // AsterDEX Trading: deposit directly to AsterDEX contract
-          depositAddress = asterDexAddress;
-        } else {
-          // Platform Wallet: deposit to platform's main_address
-          depositAddress = selectedNetConfig.network.main_address || selectedNetConfig.network.mainAddress;
-        }
-
-        if (!depositAddress) throw new Error("No deposit address available");
-
-        // Get token contract address - support both camelCase and snake_case from API
-        const tokenContractAddress = selectedNetConfig.contractAddress || 
-          (selectedNetConfig as any).contract_address || null;
-        const tokenDecimals = selectedNetConfig.decimals || 
-          (selectedNetConfig as any).decimals || 6;
-
-        // 1. Execute Blockchain Transaction (pass token address for SPL/ERC20 transfers)
+        // 1. Execute Blockchain Transaction directly to AsterDEX contract
         const txRes = await provider.deposit(
-          depositAddress,
+          asterDexAddress, // Deposit directly to AsterDEX - single tx, minimal fees
           amount,
-          tokenContractAddress,  // This will be the USDC mint address for SPL tokens
-          tokenDecimals
+          selectedNetConfig.contractAddress,
+          selectedNetConfig.decimals
         );
 
-        if (!txRes.success)
+        if (!txRes.success) {
           throw new Error(txRes.error || "Blockchain transaction failed");
+        }
 
-        // 2. For Platform deposits, call Backend API to record deposit
-        // For AsterDEX deposits, it's auto-detected by their system
-        if (depositDestination === "platform") {
-          const apiRes: any = await json(
-            "/wallet/deposit",
-            {
-              txId: txRes.hash,
-              amount: numAmount,
-              assetId: Number(asset.id),
-              networkId: Number(selectedNetConfig.network.id),
-              fromAddress: provider.address,
-            },
-            { token }
-          );
+        // 2. Call Backend API to record deposit and credit user wallet
+        const apiRes: any = await json(
+          "/wallet/deposit",
+          {
+            txId: txRes.hash,
+            amount: numAmount,
+            assetId: Number(asset.id),
+            networkId: Number(selectedNetConfig.network.id),
+            fromAddress: provider.address,
+            toAddress: asterDexAddress, // Track that it went to AsterDEX
+          },
+          { token }
+        );
 
-          if (apiRes.success) {
-            fetchWallet();
-            onSuccess?.();
-            setFeedback(`Platform wallet credited! Ref: ${txRes.hash.slice(0, 8)}...`);
-            setStatus("success");
-            close?.();
-          }
-        } else {
-          // AsterDEX deposit - auto-detected, just show success
-          setFeedback(`Sent to AsterDEX! Ref: ${txRes.hash.slice(0, 8)}... Your trading balance will update shortly.`);
+        if (apiRes.success) {
+          fetchWallet();
+          setFeedback(`Success! Tx: ${txRes.hash.slice(0, 10)}...`);
           setStatus("success");
+          setTimeout(() => close?.(), 2000);
+        } else {
+          throw new Error(apiRes.error || "Failed to record deposit");
         }
       } else {
         // --- WITHDRAW FLOW ---
         const avail = asset.balance - asset.locked;
         if (numAmount > avail) throw new Error("Insufficient balance");
-        if (numAmount < selectedNetConfig.minWithdraw)
+        if (numAmount < selectedNetConfig.minWithdraw) {
           throw new Error(
             `Minimum withdrawal is ${selectedNetConfig.minWithdraw} ${asset.symbol}`
           );
-        if (!address) throw new Error("Invalid destination address");
+        }
+        if (!address) throw new Error("Enter destination address");
 
-        // 1. Call Backend API to request withdraw
         const apiRes: any = await json(
           "wallet/withdraw",
           {
@@ -323,7 +240,9 @@ const InputGroup = ({
           fetchWallet();
           setStatus("success");
           setFeedback("Withdrawal requested successfully");
-          close();
+          setTimeout(() => close?.(), 2000);
+        } else {
+          throw new Error(apiRes.error || "Withdrawal failed");
         }
       }
     } catch (e: any) {
@@ -333,406 +252,227 @@ const InputGroup = ({
     }
   };
 
-  // 3. Check Withdrawal Balance
+  // Get Chain Key for wallet connection
+  const currentChainKey = useMemo(() => {
+    if (!selectedNetConfig) return null;
+    return (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
+  }, [selectedNetConfig]);
+
+  // Check Wallet Connection
+  const isWalletConnected = useMemo(() => {
+    if (!currentChainKey || !web3.wallets) return false;
+    return (web3.wallets as any)[currentChainKey]?.isConnected;
+  }, [currentChainKey, web3.wallets]);
+
+  // Check Withdrawal Balance
   const isBalanceInsufficient = useMemo(() => {
     if (!asset || modalType !== "withdraw") return false;
     const avail = asset.balance - asset.locked;
     return parseFloat(amount || "0") > avail;
   }, [amount, asset, modalType]);
 
-  // Check if deposit amount exceeds blockchain balance
-  const isBlockchainBalanceInsufficient = useMemo(() => {
-    if (!blockchainBalance || modalType !== "deposit") return false;
-    return parseFloat(amount || "0") > parseFloat(blockchainBalance);
-  }, [amount, blockchainBalance, modalType]);
+  // Can proceed with deposit?
+  const canDeposit = useMemo(() => {
+    if (modalType !== "deposit") return true;
+    return isWalletConnected && asterDexAddress && !loadingAsterDex && parseFloat(amount || "0") > 0;
+  }, [modalType, isWalletConnected, asterDexAddress, loadingAsterDex, amount]);
 
-  useEffect(() => {
-    if (asset) {
-      setSelectedNetConfig(
-        asset.networks.find((n: any) => n.isActive) || asset.networks[0] || null
-      );
-    }
-  }, [asset]);
-
-  // Reset amount when network changes
-  useEffect(() => {
-    setAmount("");
-    setStatus("idle");
-    setFeedback("");
-    setAsterDexAddress(null);
-  }, [selectedNetConfig?.id]);
-
-  // Fetch AsterDEX deposit address when destination changes to asterdex
-  useEffect(() => {
-    const fetchAsterDexAddress = async () => {
-      if (depositDestination !== "asterdex" || !selectedNetConfig || !asset) {
-        setAsterDexAddress(null);
-        return;
-      }
-
-      setLoadingAsterDex(true);
-      try {
-        const chain = (selectedNetConfig.network.chain || selectedNetConfig.network.slug)?.toLowerCase();
-        // Map chain to AsterDEX chainId and network
-        let chainId = 56; // Default BSC
-        let network: "EVM" | "SOLANA" = "EVM";
-        
-        if (chain === "sol" || chain === "solana") {
-          chainId = 101;
-          network = "SOLANA";
-        } else if (chain === "eth" || chain === "ethereum") {
-          chainId = 1;
-          network = "EVM";
-        } else if (chain === "bsc" || chain === "binance") {
-          chainId = 56;
-          network = "EVM";
-        } else if (chain === "arb" || chain === "arbitrum") {
-          chainId = 42161;
-          network = "EVM";
-        }
-
-        const result = await walletApi.getAsterDexDepositAddress(asset.symbol, chainId, network);
-        setAsterDexAddress(result.address || result.contractAddress || null);
-      } catch (err) {
-        console.error("Error fetching AsterDEX address:", err);
-        setAsterDexAddress(null);
-      } finally {
-        setLoadingAsterDex(false);
-      }
-    };
-
-    fetchAsterDexAddress();
-  }, [depositDestination, selectedNetConfig?.id, asset?.symbol]);
+  if (!asset || !selectedNetConfig) {
+    return <div className="py-8 text-center text-neutral-500">Loading...</div>;
+  }
 
   return (
-    <>
-      <div className={asset ? "" : "py-4"}>
-        {asset && selectedNetConfig && (
-          <div className="px-1 pt-1">
-            {/* Modal Header */}
-            <div className="mb-6 flex items-center justify-start gap-4 border-b border-neutral-100 pb-4 dark:border-neutral-800">
-              <img src={asset.logo} className="size-12 rounded-full" />
+    <div className="px-1 pt-1">
+      {/* Modal Header */}
+      <div className="mb-6 flex items-center justify-start gap-4 border-b border-neutral-100 pb-4 dark:border-neutral-800">
+        <img src={asset.logo} className="size-12 rounded-full" alt={asset.symbol} />
+        <div>
+          <h2 className="text-xl font-bold">
+            {modalType === "deposit" ? "Deposit" : "Withdraw"} {asset.symbol}
+          </h2>
+          <p className="text-xs text-neutral-500">
+            {modalType === "deposit"
+              ? "Direct to AsterDEX • Minimal fees"
+              : "Enter destination & amount"}
+          </p>
+        </div>
+      </div>
 
-              <div>
-                <h2 className="text-xl font-bold">
-                  {modalType === "deposit" ? "Deposit" : "Withdraw"}{" "}
-                  {asset.symbol}
-                </h2>
-                <p className="text-xs text-neutral-500">
-                  {modalType === "deposit"
-                    ? "Select network & connect wallet"
-                    : "Enter destination & amount"}
-                </p>
+      {/* Network Selector */}
+      <div className="mb-6">
+        <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+          Network
+        </label>
+        <div className="scrollbar-none flex gap-2 overflow-x-auto pb-2">
+          {asset.networks
+            .filter((net: any) => {
+              const isActive = net.isActive !== false && net.is_active !== false;
+              const networkActive = net.network?.isActive !== false && net.network?.is_active !== false;
+              return isActive && networkActive;
+            })
+            .map((net: any) => (
+              <button
+                key={net.id}
+                onClick={() => setSelectedNetConfig(net)}
+                className={clsx(
+                  "group flex shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-xs font-bold transition-all",
+                  selectedNetConfig.id === net.id
+                    ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-black"
+                    : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:text-white"
+                )}
+              >
+                <img src={net.network.logo} className="size-5 rounded-full" alt={net.network.name} />
+                {net.network.name}
+                {selectedNetConfig.id === net.id && <Check className="ml-1 size-3" />}
+              </button>
+            ))}
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {modalType === "deposit" ? (
+          <>
+            {/* AsterDEX Deposit Address Info */}
+            <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <ExternalLink className="size-4 text-blue-400" />
+                <span className="text-xs font-bold text-blue-400">
+                  AsterDEX Contract Address
+                </span>
               </div>
-            </div>
-
-            {/* Network Selector */}
-            <div className="mb-6">
-              <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-500">
-                Network
-              </label>
-              <div className="scrollbar-none flex gap-2 overflow-x-auto pb-2">
-                {asset.networks
-                  .filter((net: any) => {
-                    // Filter out inactive networks (like TRON)
-                    const isActive = net.isActive !== false && net.is_active !== false;
-                    const networkActive = net.network?.isActive !== false && net.network?.is_active !== false;
-                    return isActive && networkActive;
-                  })
-                  .map((net: any) => (
-                    <button
-                      key={net.id}
-                      onClick={() => setSelectedNetConfig(net)}
-                      className={clsx(
-                        "group flex shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-xs font-bold transition-all",
-                        selectedNetConfig.id === net.id
-                          ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-black"
-                          : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:text-white"
-                      )}
-                    >
-                      <img
-                        src={net.network.logo}
-                        className="size-5 rounded-full"
-                      />
-                      {net.network.name}
-                      {selectedNetConfig.id === net.id && (
-                        <Check className="ml-1 size-3" />
-                      )}
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              {modalType === "deposit" ? (
-                <>
-                  {/* DEPOSIT DESTINATION TOGGLE */}
-                  <div className="rounded-2xl border border-neutral-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-900">
-                    <label className="mb-3 block text-[10px] font-bold uppercase tracking-wider text-neutral-500">
-                      Deposit To
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setDepositDestination("platform")}
-                        className={clsx(
-                          "rounded-xl border px-4 py-3 text-xs font-bold transition-all text-left",
-                          depositDestination === "platform"
-                            ? "border-emerald-500 bg-emerald-500/10 text-emerald-500"
-                            : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          {depositDestination === "platform" && <Check className="size-3" />}
-                          <span>Platform Wallet</span>
-                        </div>
-                        <p className="mt-1 text-[10px] font-normal text-neutral-400">
-                          Internal balance, faster withdrawals
-                        </p>
-                      </button>
-                      <button
-                        onClick={() => setDepositDestination("asterdex")}
-                        className={clsx(
-                          "rounded-xl border px-4 py-3 text-xs font-bold transition-all text-left",
-                          depositDestination === "asterdex"
-                            ? "border-blue-500 bg-blue-500/10 text-blue-500"
-                            : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          {depositDestination === "asterdex" && <Check className="size-3" />}
-                          <span>AsterDEX Trading</span>
-                        </div>
-                        <p className="mt-1 text-[10px] font-normal text-neutral-400">
-                          Direct to exchange for trading
-                        </p>
-                      </button>
-                    </div>
-                    
-                    {/* Show AsterDEX address info when selected */}
-                    {depositDestination === "asterdex" && (
-                      <div className="mt-3 rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
-                        <p className="text-[10px] text-blue-400 mb-1 flex items-center gap-1">
-                          <ExternalLink className="size-3" />
-                          Deposit address (AsterDEX contract)
-                        </p>
-                        {loadingAsterDex ? (
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="size-3 animate-spin text-blue-400" />
-                            <span className="text-xs text-neutral-400">Loading...</span>
-                          </div>
-                        ) : asterDexAddress ? (
-                          <p className="text-xs font-mono text-white break-all">{asterDexAddress}</p>
-                        ) : (
-                          <p className="text-xs text-red-400">AsterDEX not available for this network</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* WEB3 CONNECT SECTION */}
-                  <div
-                    className={clsx(
-                      "rounded-2xl border p-4",
-                      "border-neutral-200 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900"
-                    )}
-                  >
-                    <div className="mb-3 flex items-center justify-between">
-                      <span className="text-xs font-bold text-neutral-500">
-                        1. Connect Wallet
-                      </span>
-                      <span className="rounded bg-neutral-200 px-2 py-1 text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                        {selectedNetConfig.network.type}
-                      </span>
-                    </div>
-
-                    {/* Lazy Loaded Wallet Button */}
-                    <Suspense
-                      fallback={
-                        <div className="py-4 text-center text-xs text-neutral-500">
-                          Loading Adapter...
-                        </div>
-                      }
-                    >
-                      <div className="[&>button]:w-full [&>button]:rounded-xl [&>button]:bg-black [&>button]:py-3 [&>button]:font-bold [&>button]:text-white [&>button]:hover:opacity-90 dark:[&>button]:bg-white dark:[&>button]:text-black">
-                        <WalletButton
-                          minimize={true}
-                          chain={currentChainKey as any}
-                        />
-                      </div>
-                    </Suspense>
-                  </div>
-
-                  <InputGroup
-                    label="2. Amount"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e: any) => setAmount(e.target.value)}
-                    type="number"
-                    rightElement={
-                      <div className="flex items-center gap-2">
-                        {blockchainBalance && parseFloat(blockchainBalance) > 0 && (
-                          <button
-                            onClick={() => setAmount(blockchainBalance)}
-                            className="text-xs font-bold text-emerald-500 hover:text-emerald-400 transition-colors"
-                          >
-                            MAX
-                          </button>
-                        )}
-                        <span className="font-bold">{asset.symbol}</span>
-                      </div>
-                    }
-                    helperText={`Min Deposit: ${(selectedNetConfig as any).min_deposit ?? selectedNetConfig.minDeposit ?? 0} ${asset.symbol}`}
-                    error={isBlockchainBalanceInsufficient ? "Insufficient wallet balance" : ""}
-                  />
-                  
-                  {/* Always show blockchain balance section under amount input */}
-                  <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900/50 px-4 py-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                        Wallet Balance
-                      </span>
-                       {!expectedActiveChain ? (
-                         <span className="text-xs text-neutral-400">Unsupported network</span>
-                       ) : !isAnyWalletConnected ? (
-                         <span className="text-xs text-neutral-400">Connect wallet to view</span>
-                       ) : needsNetworkSwitch ? (
-                         <span className="text-xs text-neutral-400">Switch to {expectedActiveChain} to view</span>
-                      ) : loadingBalance ? (
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="size-3 animate-spin text-neutral-400" />
-                          <span className="text-xs text-neutral-400">Loading...</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm font-semibold text-emerald-500">
-                          {blockchainBalance ?? "0.00"} {asset.symbol}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* WITHDRAW SECTION */
-                <>
-                  <InputGroup
-                    label="Destination Address"
-                    placeholder={`Paste ${selectedNetConfig.network.name} Address`}
-                    value={address}
-                    onChange={(e: any) => setAddress(e.target.value)}
-                  />
-
-                  <InputGroup
-                    label="Amount"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e: any) => setAmount(e.target.value)}
-                    type="number"
-                    rightElement={
-                      <button
-                        onClick={() =>
-                          setAmount((asset.balance - asset.locked).toString())
-                        }
-                        className="text-xs font-bold text-neutral-900 underline decoration-neutral-400 underline-offset-4 dark:text-white"
-                      >
-                        MAX
-                      </button>
-                    }
-                    error={isBalanceInsufficient ? "Insufficient Balance" : ""}
-                    helperText={`Available: ${(
-                      asset.balance - asset.locked
-                    ).toFixed(4)} ${asset.symbol}`}
-                  />
-                </>
-              )}
-
-              {/* STATUS FEEDBACK */}
-              {(status === "error" || status === "success") && (
-                <div
-                  className={clsx(
-                    "flex items-start gap-3 rounded-xl border p-4 text-xs font-medium",
-                    status === "error"
-                      ? "border-red-200 bg-red-50 text-red-600 dark:border-red-900/50 dark:bg-red-900/10 dark:text-red-400"
-                      : "border-green-200 bg-green-50 text-green-600 dark:border-green-900/50 dark:bg-green-900/10 dark:text-green-400"
-                  )}
-                >
-                  {status === "error" ? (
-                    <AlertCircle className="size-5 shrink-0" />
-                  ) : (
-                    <Check className="size-5 shrink-0" />
-                  )}
-                  <div className="break-all">
-                    <p className="mb-1 font-bold">
-                      {status === "error" ? "Failed" : "Success"}
-                    </p>
-                    <p className="opacity-90">{feedback}</p>
-                  </div>
+              {loadingAsterDex ? (
+                <div className="flex items-center gap-2 py-2">
+                  <Loader2 className="size-4 animate-spin text-blue-400" />
+                  <span className="text-sm text-neutral-400">Loading...</span>
                 </div>
-              )}
-
-              {/* MAIN ACTION BUTTON - Always show for deposit, with proper disabled state */}
-              {modalType === "deposit" ? (
-                <button
-                  onClick={handleTransaction}
-                  disabled={
-                     !isWalletConnected ||
-                    status === "processing" ||
-                    status === "success" ||
-                    !amount ||
-                    parseFloat(amount || "0") <= 0 ||
-                    isBlockchainBalanceInsufficient ||
-                    (depositDestination === "asterdex" && !asterDexAddress)
-                  }
-                  className={BUTTON_PRIMARY_CLASSES}
-                >
-                  {status === "processing" ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Processing...
-                    </>
-                   ) : !expectedActiveChain ? (
-                     "Unsupported Network"
-                   ) : !isAnyWalletConnected ? (
-                     "Connect Wallet First"
-                   ) : needsNetworkSwitch ? (
-                     `Switch to ${expectedActiveChain}`
-                  ) : depositDestination === "asterdex" && loadingAsterDex ? (
-                    "Loading AsterDEX..."
-                  ) : depositDestination === "asterdex" && !asterDexAddress ? (
-                    "AsterDEX Unavailable"
-                  ) : !amount || parseFloat(amount || "0") <= 0 ? (
-                    "Enter Amount"
-                  ) : depositDestination === "asterdex" ? (
-                    `Deposit ${amount} ${asset.symbol} to AsterDEX`
-                  ) : (
-                    `Deposit ${amount} ${asset.symbol} to Platform`
-                  )}
-                </button>
+              ) : asterDexAddress ? (
+                <p className="break-all font-mono text-sm text-white">{asterDexAddress}</p>
               ) : (
-                <button
-                  onClick={handleTransaction}
-                  disabled={
-                    status === "processing" ||
-                    status === "success" ||
-                    isBalanceInsufficient ||
-                    !amount ||
-                    !address
-                  }
-                  className={BUTTON_PRIMARY_CLASSES}
-                >
-                  {status === "processing" ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    "Confirm Withdrawal"
-                  )}
-                </button>
+                <p className="text-sm text-red-400">Not available for this network</p>
               )}
+              <p className="mt-2 text-[10px] text-neutral-500">
+                Funds sent here go directly to AsterDEX for trading
+              </p>
+            </div>
+
+            {/* WEB3 CONNECT SECTION */}
+            <div className="rounded-2xl border border-neutral-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-900">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs font-bold text-neutral-500">1. Connect Wallet</span>
+                <span className="rounded bg-neutral-200 px-2 py-1 text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                  {selectedNetConfig.network.name}
+                </span>
+              </div>
+              <Suspense
+                fallback={
+                  <div className="py-4 text-center text-xs text-neutral-500">
+                    Loading Adapter...
+                  </div>
+                }
+              >
+                <div className="[&>button]:w-full [&>button]:rounded-xl [&>button]:bg-black [&>button]:py-3 [&>button]:font-bold [&>button]:text-white [&>button]:hover:opacity-90 dark:[&>button]:bg-white dark:[&>button]:text-black">
+                  <WalletButton minimize={true} chain={currentChainKey as any} />
+                </div>
+              </Suspense>
+            </div>
+
+            {/* Amount Input */}
+            <InputGroup
+              label="2. Amount"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e: any) => setAmount(e.target.value)}
+              type="number"
+              rightElement={<span className="font-bold">{asset.symbol}</span>}
+              helperText={`Min: ${selectedNetConfig.minDeposit || 0}`}
+            />
+          </>
+        ) : (
+          /* WITHDRAW SECTION */
+          <>
+            <InputGroup
+              label="Destination Address"
+              placeholder={`Paste ${selectedNetConfig.network.name} address`}
+              value={address}
+              onChange={(e: any) => setAddress(e.target.value)}
+            />
+
+            <InputGroup
+              label="Amount"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e: any) => setAmount(e.target.value)}
+              type="number"
+              rightElement={
+                <button
+                  onClick={() => setAmount((asset.balance - asset.locked).toString())}
+                  className="text-xs font-bold text-neutral-900 underline decoration-neutral-400 underline-offset-4 dark:text-white"
+                >
+                  MAX
+                </button>
+              }
+              error={isBalanceInsufficient ? "Insufficient Balance" : ""}
+              helperText={`Available: ${(asset.balance - asset.locked).toFixed(4)} ${asset.symbol}`}
+            />
+          </>
+        )}
+
+        {/* STATUS FEEDBACK */}
+        {(status === "error" || status === "success") && (
+          <div
+            className={clsx(
+              "flex items-start gap-3 rounded-xl border p-4 text-xs font-medium",
+              status === "error"
+                ? "border-red-200 bg-red-50 text-red-600 dark:border-red-900/50 dark:bg-red-900/10 dark:text-red-400"
+                : "border-green-200 bg-green-50 text-green-600 dark:border-green-900/50 dark:bg-green-900/10 dark:text-green-400"
+            )}
+          >
+            {status === "error" ? (
+              <AlertCircle className="size-5 shrink-0" />
+            ) : (
+              <Check className="size-5 shrink-0" />
+            )}
+            <div className="break-all">
+              <p className="mb-1 font-bold">{status === "error" ? "Failed" : "Success"}</p>
+              <p className="opacity-90">{feedback}</p>
             </div>
           </div>
         )}
+
+        {/* MAIN ACTION BUTTON */}
+        {modalType === "deposit" ? (
+          isWalletConnected && asterDexAddress ? (
+            <button
+              onClick={handleTransaction}
+              disabled={status === "processing" || status === "success" || !canDeposit}
+              className={BUTTON_PRIMARY_CLASSES}
+            >
+              {status === "processing" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Confirm Deposit"
+              )}
+            </button>
+          ) : null
+        ) : (
+          <button
+            onClick={handleTransaction}
+            disabled={
+              status === "processing" ||
+              status === "success" ||
+              isBalanceInsufficient ||
+              !address
+            }
+            className={BUTTON_PRIMARY_CLASSES}
+          >
+            {status === "processing" ? "Processing..." : "Confirm Withdrawal"}
+          </button>
+        )}
       </div>
-    </>
+    </div>
   );
 };
 
