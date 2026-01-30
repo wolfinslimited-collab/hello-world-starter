@@ -21,7 +21,6 @@ export default defineConfig(({ mode }) => {
         components: path.resolve(__dirname, "src/components"),
         context: path.resolve(__dirname, "src/context"),
         hooks: path.resolve(__dirname, "src/hooks"),
-
         locales: path.resolve(__dirname, "src/locales"),
         pages: path.resolve(__dirname, "src/pages"),
         utils: path.resolve(__dirname, "src/utils"),
@@ -29,6 +28,8 @@ export default defineConfig(({ mode }) => {
         services: path.resolve(__dirname, "src/services"),
         types: path.resolve(__dirname, "src/types"),
       },
+      // Prevent duplicate React instances
+      dedupe: ["react", "react-dom", "react/jsx-runtime"],
     },
     build: {
       // Lovable publishing expects the standard Vite output directory.
