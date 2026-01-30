@@ -1622,10 +1622,10 @@ Deno.serve(async (req) => {
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
         // Use different endpoint based on account type
-        // Note: www.asterdex.com is the correct base for API, not sapi.asterdex.com
+        // Docs: Futures API is fapi.asterdex.com, Spot API is api.asterdex.com
         const baseUrl = accountType === "spot" 
-          ? "https://www.asterdex.com/api/v3/account"  // Spot account
-          : "https://www.asterdex.com/fapi/v3/balance"; // Futures balance
+          ? "https://api.asterdex.com/api/v3/account"  // Spot account
+          : "https://fapi.asterdex.com/fapi/v2/balance"; // Futures balance
 
         const response = await fetch(
           `${baseUrl}?${queryString}&signature=${signature}`,
@@ -1693,7 +1693,7 @@ Deno.serve(async (req) => {
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
         const response = await fetch(
-          `https://www.asterdex.com/sapi/v1/capital/deposit/hisrec?${queryString}&signature=${signature}`,
+          `https://api.asterdex.com/sapi/v1/capital/deposit/hisrec?${queryString}&signature=${signature}`,
           {
             method: "GET",
             headers: {
@@ -1787,7 +1787,7 @@ Deno.serve(async (req) => {
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
         const response = await fetch(
-          `https://www.asterdex.com/api/v3/account?${queryString}&signature=${signature}`,
+          `https://api.asterdex.com/api/v3/account?${queryString}&signature=${signature}`,
           {
             method: "GET",
             headers: {
@@ -1838,7 +1838,7 @@ Deno.serve(async (req) => {
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
         const response = await fetch(
-          `https://www.asterdex.com/sapi/v1/capital/config/getall?${queryString}&signature=${signature}`,
+          `https://api.asterdex.com/sapi/v1/capital/config/getall?${queryString}&signature=${signature}`,
           {
             method: "GET",
             headers: {
