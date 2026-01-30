@@ -1766,6 +1766,108 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Get AsterDEX full account info (Spot API - more detailed)
+    if (path === "/asterdex/account-info" && method === "GET") {
+      const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+      const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+
+      if (!apiKey || !apiSecret) {
+        return error("AsterDEX credentials not configured", 500);
+      }
+
+      try {
+        const timestamp = Date.now();
+        const params: Record<string, string | number> = {
+          timestamp: timestamp,
+          recvWindow: 60000,
+        };
+
+        const signature = await signAsterDexRequest(params, apiSecret);
+        const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+        const response = await fetch(
+          `https://sapi.asterdex.com/api/v1/account?${queryString}&signature=${signature}`,
+          {
+            method: "GET",
+            headers: {
+              "X-MBX-APIKEY": apiKey,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const contentType = response.headers.get("content-type") || "";
+        const responseText = await response.text();
+
+        if (!contentType.includes("application/json")) {
+          return error(`AsterDEX returned HTML. Preview: ${responseText.substring(0, 200)}`, 500);
+        }
+
+        const data = JSON.parse(responseText);
+
+        if (!response.ok) {
+          console.error("AsterDEX account-info error:", data);
+          return error(data.msg || data.message || "Failed to get account info", response.status);
+        }
+
+        return success({ accountInfo: data });
+      } catch (err: any) {
+        console.error("AsterDEX account-info error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Get capital/config (all network configs for deposits/withdrawals)
+    if (path === "/asterdex/capital/config" && method === "GET") {
+      const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+      const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+
+      if (!apiKey || !apiSecret) {
+        return error("AsterDEX credentials not configured", 500);
+      }
+
+      try {
+        const timestamp = Date.now();
+        const params: Record<string, string | number> = {
+          timestamp: timestamp,
+          recvWindow: 60000,
+        };
+
+        const signature = await signAsterDexRequest(params, apiSecret);
+        const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+        const response = await fetch(
+          `https://sapi.asterdex.com/sapi/v1/capital/config/getall?${queryString}&signature=${signature}`,
+          {
+            method: "GET",
+            headers: {
+              "X-MBX-APIKEY": apiKey,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const contentType = response.headers.get("content-type") || "";
+        const responseText = await response.text();
+
+        if (!contentType.includes("application/json")) {
+          return error(`AsterDEX returned HTML. Preview: ${responseText.substring(0, 200)}`, 500);
+        }
+
+        const data = JSON.parse(responseText);
+
+        if (!response.ok) {
+          console.error("AsterDEX capital config error:", data);
+          return error(data.msg || data.message || "Failed to get capital config", response.status);
+        }
+
+        return success({ config: data });
+      } catch (err: any) {
+        console.error("AsterDEX capital config error:", err);
+        return error(err.message, 500);
+      }
+    }
+
     // 404 for unknown routes
     return error("Not found", 404);
   } catch (err) {
