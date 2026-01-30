@@ -33,7 +33,11 @@ const ENDPOINTS = [
   { path: '/asterdex/deposit-assets?chainId=56&network=EVM&accountType=spot', method: 'GET', auth: false, description: 'Get BSC deposit assets/contracts' },
   { path: '/asterdex/deposit-assets?chainId=101&network=SOLANA&accountType=spot', method: 'GET', auth: false, description: 'Get Solana deposit assets/contracts' },
   { path: '/asterdex/deposit-address?coin=USDT&chainId=56&network=EVM', method: 'GET', auth: false, description: 'Get USDT deposit address (BSC)' },
-  { path: '/asterdex/deposit-address?coin=USDT&chainId=101&network=SOLANA', method: 'GET', auth: false, description: 'Get USDT deposit address (Solana)' },
+  { path: '/asterdex/deposit-address?coin=USDC&chainId=101&network=SOLANA', method: 'GET', auth: false, description: 'Get USDC deposit address (Solana)' },
+  // Transfer equity between Spot and Futures (internal transfer)
+  { path: '/asterdex/account-info', method: 'GET', auth: false, description: 'Get AsterDEX full account info (Spot API)' },
+  // Capital endpoints
+  { path: '/asterdex/capital/config', method: 'GET', auth: false, description: 'Get all network configs for deposits' },
 ];
 
 const DevTools = () => {
