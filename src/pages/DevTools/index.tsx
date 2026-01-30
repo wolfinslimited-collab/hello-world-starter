@@ -21,13 +21,19 @@ const ENDPOINTS = [
   { path: '/asterdex/ping', method: 'GET', auth: false, description: 'Test AsterDEX connectivity (public)' },
   { path: '/asterdex/time', method: 'GET', auth: false, description: 'Get AsterDEX server time (public)' },
   { path: '/asterdex/exchangeinfo', method: 'GET', auth: false, description: 'Get AsterDEX exchange info (public)' },
-  { path: '/asterdex/balance', method: 'GET', auth: false, description: 'Get AsterDEX account balance (requires API key)' },
+  // AsterDEX Balance endpoints - Spot vs Futures
+  { path: '/asterdex/balance', method: 'GET', auth: false, description: 'Get AsterDEX Futures balance (default)' },
+  { path: '/asterdex/balance?accountType=spot', method: 'GET', auth: false, description: 'Get AsterDEX Spot balance' },
+  { path: '/asterdex/balance?accountType=futures', method: 'GET', auth: false, description: 'Get AsterDEX Futures balance' },
+  // Deposit history - check if deposits were credited
+  { path: '/asterdex/deposit-history', method: 'GET', auth: false, description: 'Get AsterDEX deposit history (all)' },
+  { path: '/asterdex/deposit-history?coin=USDC', method: 'GET', auth: false, description: 'Get USDC deposit history' },
+  { path: '/asterdex/deposit-history?coin=USDT', method: 'GET', auth: false, description: 'Get USDT deposit history' },
   // Deposit endpoints - returns contract addresses where users deposit tokens
   { path: '/asterdex/deposit-assets?chainId=56&network=EVM&accountType=spot', method: 'GET', auth: false, description: 'Get BSC deposit assets/contracts' },
   { path: '/asterdex/deposit-assets?chainId=101&network=SOLANA&accountType=spot', method: 'GET', auth: false, description: 'Get Solana deposit assets/contracts' },
   { path: '/asterdex/deposit-address?coin=USDT&chainId=56&network=EVM', method: 'GET', auth: false, description: 'Get USDT deposit address (BSC)' },
   { path: '/asterdex/deposit-address?coin=USDT&chainId=101&network=SOLANA', method: 'GET', auth: false, description: 'Get USDT deposit address (Solana)' },
-
 ];
 
 const DevTools = () => {

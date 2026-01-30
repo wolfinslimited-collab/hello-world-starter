@@ -1601,7 +1601,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Get AsterDEX account balance (requires authentication)
+    // Get AsterDEX account balance (supports spot and futures via accountType query param)
     if (path === "/asterdex/balance" && method === "GET") {
       const apiKey = Deno.env.get("ASTERDEX_API_KEY");
       const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
@@ -1611,6 +1611,7 @@ Deno.serve(async (req) => {
       }
 
       try {
+        const accountType = url.searchParams.get("accountType") || "futures";
         const timestamp = Date.now();
         const params: Record<string, string | number> = {
           timestamp: timestamp,
@@ -1620,8 +1621,13 @@ Deno.serve(async (req) => {
         const signature = await signAsterDexRequest(params, apiSecret);
         const queryString = new URLSearchParams(params as Record<string, string>).toString();
 
+        // Use different endpoint based on account type
+        const baseUrl = accountType === "spot" 
+          ? "https://sapi.asterdex.com/api/v1/account"  // Spot account
+          : "https://fapi.asterdex.com/fapi/v2/balance"; // Futures balance
+
         const response = await fetch(
-          `https://fapi.asterdex.com/fapi/v2/balance?${queryString}&signature=${signature}`,
+          `${baseUrl}?${queryString}&signature=${signature}`,
           {
             method: "GET",
             headers: {
@@ -1645,9 +1651,74 @@ Deno.serve(async (req) => {
           return error(data.msg || data.message || "Failed to get balance", response.status);
         }
 
-        return success({ balances: data });
+        // Spot returns { balances: [...] }, Futures returns array directly
+        const balances = accountType === "spot" ? data.balances : data;
+        return success({ accountType, balances });
       } catch (err: any) {
         console.error("AsterDEX balance error:", err);
+        return error(err.message, 500);
+      }
+    }
+
+    // Get AsterDEX deposit history
+    if (path === "/asterdex/deposit-history" && method === "GET") {
+      const apiKey = Deno.env.get("ASTERDEX_API_KEY");
+      const apiSecret = Deno.env.get("ASTERDEX_API_SECRET");
+
+      if (!apiKey || !apiSecret) {
+        return error("AsterDEX credentials not configured", 500);
+      }
+
+      try {
+        const coin = url.searchParams.get("coin");
+        const status = url.searchParams.get("status"); // 0: pending, 1: success
+        const startTime = url.searchParams.get("startTime");
+        const endTime = url.searchParams.get("endTime");
+        const limit = url.searchParams.get("limit") || "100";
+
+        const timestamp = Date.now();
+        const params: Record<string, string | number> = {
+          timestamp: timestamp,
+          recvWindow: 60000,
+          limit: Number(limit),
+        };
+
+        if (coin) params.coin = coin;
+        if (status) params.status = Number(status);
+        if (startTime) params.startTime = Number(startTime);
+        if (endTime) params.endTime = Number(endTime);
+
+        const signature = await signAsterDexRequest(params, apiSecret);
+        const queryString = new URLSearchParams(params as Record<string, string>).toString();
+
+        const response = await fetch(
+          `https://sapi.asterdex.com/sapi/v1/capital/deposit/hisrec?${queryString}&signature=${signature}`,
+          {
+            method: "GET",
+            headers: {
+              "X-MBX-APIKEY": apiKey,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const contentType = response.headers.get("content-type") || "";
+        const responseText = await response.text();
+
+        if (!contentType.includes("application/json")) {
+          return error(`AsterDEX returned HTML. Preview: ${responseText.substring(0, 200)}`, 500);
+        }
+
+        const data = JSON.parse(responseText);
+
+        if (!response.ok) {
+          console.error("AsterDEX deposit history error:", data);
+          return error(data.msg || data.message || "Failed to get deposit history", response.status);
+        }
+
+        return success({ deposits: data });
+      } catch (err: any) {
+        console.error("AsterDEX deposit history error:", err);
         return error(err.message, 500);
       }
     }
