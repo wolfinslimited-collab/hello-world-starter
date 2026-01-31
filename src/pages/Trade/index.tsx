@@ -137,9 +137,9 @@ export default function Trade() {
     <div className="flex flex-col gap-3 w-full px-3 pb-10 text-neutral-200">
       <div className="flex flex-col md:flex-row gap-3">
         {/* Chart Area */}
-        <div className="flex flex-1 flex-col gap-3 min-w-0">
+        <div className="flex flex-col gap-3 min-w-0 w-full md:flex-1">
           <HeaderInfo />
-          <div className="flex-1 min-h-[400px]">
+          <div className="h-[400px] md:flex-1 md:min-h-[400px]">
             <Chart />
           </div>
         </div>
