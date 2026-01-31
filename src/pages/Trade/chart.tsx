@@ -347,7 +347,7 @@ const Chart = () => {
       </div>
 
       {/* Chart Container */}
-      <div ref={containerRef} className="flex-1 w-full relative"></div>
+      <div ref={containerRef} className="flex-1 w-full relative min-h-[350px]"></div>
     </div>
   );
 };
