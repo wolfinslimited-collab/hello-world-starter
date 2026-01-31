@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useWallet as useSolWallet } from "@solana/wallet-adapter-react";
-import { useWallet as useTronWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import { useConnect } from "wagmi";
 import { ChevronLeft, Wallet, ChevronRight, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,11 +9,11 @@ const Icons = {
   ETH: "https://cryptologos.cc/logos/ethereum-eth-logo.png",
   BNB: "https://cryptologos.cc/logos/bnb-bnb-logo.png",
   SOL: "https://cryptologos.cc/logos/solana-sol-logo.png",
-  TRX: "https://cryptologos.cc/logos/tron-trx-logo.png",
+  ARB: "https://cryptologos.cc/logos/arbitrum-arb-logo.png",
 };
 
-type ViewState = "NETWORKS" | "SOL_WALLETS" | "TRON_WALLETS" | "EVM_WALLETS";
-type ChainType = "eth" | "bsc" | "solana" | "tron";
+type ViewState = "NETWORKS" | "SOL_WALLETS" | "EVM_WALLETS";
+type ChainType = "eth" | "bsc" | "solana" | "arbitrum";
 
 interface UnifiedConnectModalProps {
   onClose?: () => void;
@@ -24,15 +23,13 @@ interface UnifiedConnectModalProps {
 const ConnectModal = ({ onClose, chain }: UnifiedConnectModalProps) => {
   const { connectors, connect } = useConnect();
 
-  // SOL & TRON Adapters
+  // SOL Adapter
   const { wallets: solWallets, select: selectSol } = useSolWallet();
-  const { wallets: tronWallets, select: selectTron } = useTronWallet();
 
   // --- Initialize state ---
   const [view, setView] = useState<ViewState>(() => {
     if (chain === "solana") return "SOL_WALLETS";
-    if (chain === "tron") return "TRON_WALLETS";
-    if (chain === "eth" || chain === "bsc") return "EVM_WALLETS";
+    if (chain === "eth" || chain === "bsc" || chain === "arbitrum") return "EVM_WALLETS";
     return "NETWORKS";
   });
 
@@ -41,14 +38,12 @@ const ConnectModal = ({ onClose, chain }: UnifiedConnectModalProps) => {
   }, [chain]);
 
   const handleNetworkSelect = (chain: ChainType) => {
-    if (chain === "eth" || chain === "bsc") setView("EVM_WALLETS");
+    if (chain === "eth" || chain === "bsc" || chain === "arbitrum") setView("EVM_WALLETS");
     else if (chain === "solana") setView("SOL_WALLETS");
-    else if (chain === "tron") setView("TRON_WALLETS");
   };
 
-  const handleWalletSelect = (wallet: any, type: "SOL" | "TRX" | "EVM") => {
+  const handleWalletSelect = (wallet: any, type: "SOL" | "EVM") => {
     if (type === "SOL") selectSol(wallet.adapter.name);
-    else if (type === "TRX") selectTron(wallet.adapter.name);
     else if (type === "EVM") connect({ connector: wallet });
     onClose?.();
   };
@@ -118,16 +113,16 @@ const ConnectModal = ({ onClose, chain }: UnifiedConnectModalProps) => {
                 onClick={() => handleNetworkSelect("bsc")}
               />
               <NetworkRow
+                name="Arbitrum"
+                description="Ethereum L2"
+                icon={Icons.ARB}
+                onClick={() => handleNetworkSelect("arbitrum")}
+              />
+              <NetworkRow
                 name="Solana"
                 description="High speed L1"
                 icon={Icons.SOL}
                 onClick={() => handleNetworkSelect("solana")}
-              />
-              <NetworkRow
-                name="Tron"
-                description="TRC20 Network"
-                icon={Icons.TRX}
-                onClick={() => handleNetworkSelect("tron")}
               />
             </motion.div>
           )}
@@ -171,28 +166,6 @@ const ConnectModal = ({ onClose, chain }: UnifiedConnectModalProps) => {
                   name={w.adapter.name}
                   icon={w.adapter.icon}
                   onClick={() => handleWalletSelect(w, "SOL")}
-                />
-              ))}
-            </motion.div>
-          )}
-
-          {/* 4. TRON WALLETS */}
-          {view === "TRON_WALLETS" && (
-            <motion.div
-              key="tron-wallets"
-              variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              className="flex flex-col gap-2 pr-1 h-full overflow-y-auto custom-scrollbar"
-            >
-              {tronWallets.length === 0 && <NoWalletsMessage chain="Tron" />}
-              {tronWallets.map((w) => (
-                <WalletRow
-                  key={w.adapter.name}
-                  name={w.adapter.name}
-                  icon={w.adapter.icon}
-                  onClick={() => handleWalletSelect(w, "TRX")}
                 />
               ))}
             </motion.div>

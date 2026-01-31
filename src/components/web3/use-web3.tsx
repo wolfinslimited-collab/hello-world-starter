@@ -186,6 +186,7 @@ export const useWeb3 = () => {
     if (isEvmConnected && chain) {
       if (chain.id === 1) return "ETH";
       if (chain.id === 56) return "BSC";
+      if (chain.id === 42161) return "ARB";
       return "EVM_OTHER";
     }
     return "NONE";
@@ -543,6 +544,7 @@ export const useWeb3 = () => {
 
   const isEthActive = isEvmConnected && chain?.id === 1;
   const isBscActive = isEvmConnected && chain?.id === 56;
+  const isArbActive = isEvmConnected && chain?.id === 42161;
   const evmActions = createEvmActions();
 
   return {
@@ -559,6 +561,12 @@ export const useWeb3 = () => {
         address: isBscActive ? evmAddress : null,
         addressShort: isBscActive ? shortenAddress(evmAddress) : "",
         isConnected: isBscActive,
+        ...evmActions,
+      },
+      arbitrum: {
+        address: isArbActive ? evmAddress : null,
+        addressShort: isArbActive ? shortenAddress(evmAddress) : "",
+        isConnected: isArbActive,
         ...evmActions,
       },
       solana: {

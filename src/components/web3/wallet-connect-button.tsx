@@ -29,7 +29,7 @@ const MenuLink = ({ icon: Icon, label, link }: { icon: any; label: string; link:
 );
 
 interface WalletConnectButtonProps {
-  chain?: "eth" | "bsc" | "solana" | "tron";
+  chain?: "eth" | "bsc" | "solana" | "arbitrum";
   minimize?: boolean;
 }
 
@@ -49,6 +49,7 @@ export function WalletConnectButton({ chain, minimize = false }: WalletConnectBu
     switch (web3.activeChain) {
       case "ETH": return web3.wallets.eth;
       case "BSC": return web3.wallets.bsc;
+      case "ARB": return web3.wallets.arbitrum;
       case "SOLANA": return web3.wallets.solana;
       case "TRON": return web3.wallets.tron;
       default: return null;
