@@ -1549,17 +1549,36 @@ Deno.serve(async (req) => {
           return error(`Asset ${coin} not found on chain ${chainId}. Available: ${data.data.map((a: any) => a.name).join(", ")}`, 404);
         }
 
+        // Log the full asset data to understand the structure
+        console.log("AsterDEX asset data for", coin, ":", JSON.stringify(asset));
+
+        // For EVM chains, AsterDEX may have different address fields:
+        // - spender: the vault/contract users approve and send to
+        // - contractAddress: might be the token contract OR the deposit contract
+        // - bank: sometimes used for the vault
+        // - depositAddress: explicit deposit address
+        const evmVaultAddress = 
+          asset.spender || 
+          asset.bank || 
+          asset.depositAddress || 
+          asset.vaultAddress ||
+          asset.contractAddress;
+
         // For Solana, the deposit mechanism uses tokenVault/tokenMint
-        // For EVM, it uses contractAddress
         const depositAddress = network === "SOLANA" 
           ? asset.tokenVault || asset.tokenMint 
-          : asset.contractAddress;
+          : evmVaultAddress;
 
         return success({
           coin: asset.name,
           displayName: asset.displayName,
           address: depositAddress,
+          // Include all possible address fields so frontend can debug
           contractAddress: asset.contractAddress,
+          spender: asset.spender,
+          bank: asset.bank,
+          depositAddress: asset.depositAddress,
+          vaultAddress: asset.vaultAddress,
           tokenVault: asset.tokenVault,
           tokenMint: asset.tokenMint,
           network,
@@ -1567,11 +1586,11 @@ Deno.serve(async (req) => {
           decimals: asset.decimals,
           depositType: asset.depositType,
           isNative: asset.isNative,
-          // For Solana: users interact with the Aster smart contract to deposit
-          // For EVM: users approve and deposit to the contract address
+          // Full raw data for debugging
+          _rawAsset: asset,
           instructions: network === "SOLANA" 
             ? "Deposit by interacting with AsterDEX Solana program. Use tokenVault for SPL tokens."
-            : "Approve tokens to contractAddress, then call deposit function on AsterDEX contract."
+            : "Transfer tokens directly to the deposit address. AsterDEX auto-detects on-chain deposits."
         });
       } catch (err: any) {
         console.error("AsterDEX deposit address error:", err);

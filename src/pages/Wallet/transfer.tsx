@@ -12,41 +12,66 @@ import { TOKEN_PROGRAM_ID, getAccount } from "@solana/spl-token";
 
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
 
-// Fetch AsterDEX deposit address
-// For Solana: use tokenVault from AsterDEX API
-// For EVM: use the network's main_address (deposit vault), NOT the token contract
-const fetchAsterDexAddress = async (
+// Deposit address info - for EVM we use platform vault, for Solana we fetch from AsterDEX
+interface DepositAddressInfo {
+  vaultAddress: string;
+  tokenContract?: string;
+  network: string;
+  chainId: number;
+  source: "platform" | "asterdex"; // Track where the address comes from
+}
+
+// Fetch deposit address - for Solana use AsterDEX API, for EVM use platform's database
+const fetchDepositAddress = async (
   coin: string, 
-  chainId: number, 
-  networkMainAddress?: string
-): Promise<string | null> => {
+  chainId: number,
+  platformVaultAddress?: string
+): Promise<DepositAddressInfo | null> => {
   try {
     const network = chainId === 101 ? "SOLANA" : "EVM";
     
-    // For EVM chains, the deposit address is the network's main_address (deposit vault)
-    // NOT the token's ERC20 contract address
-    if (network === "EVM" && networkMainAddress) {
-      console.log("[AsterDEX] Using network main_address for EVM deposit:", networkMainAddress);
-      return networkMainAddress;
+    // For Solana, fetch from AsterDEX API to get the tokenVault
+    if (network === "SOLANA") {
+      const result = await get(`/asterdex/deposit-address?coin=${coin}&chainId=${chainId}&network=${network}`);
+      
+      if (result?.success && result.tokenVault) {
+        console.log("[Deposit] Solana tokenVault from AsterDEX:", result.tokenVault);
+        return {
+          vaultAddress: result.tokenVault,
+          tokenContract: result.tokenMint,
+          network,
+          chainId,
+          source: "asterdex"
+        };
+      }
     }
     
-    // For Solana, we still need to fetch tokenVault from AsterDEX API
-    const result = await get(`/asterdex/deposit-address?coin=${coin}&chainId=${chainId}&network=${network}`);
-    if (result?.success) {
-      if (chainId === 101 && result.tokenVault) {
-        return result.tokenVault;
-      }
-      // Fallback to network main_address for EVM if available
-      if (network === "EVM" && networkMainAddress) {
-        return networkMainAddress;
-      }
-      return result.tokenVault || null;
+    // For EVM chains, AsterDEX doesn't provide public deposit addresses
+    // Users deposit to platform vault, platform handles forwarding to AsterDEX
+    if (network === "EVM" && platformVaultAddress) {
+      console.log("[Deposit] Using platform vault for EVM:", platformVaultAddress);
+      return {
+        vaultAddress: platformVaultAddress,
+        network,
+        chainId,
+        source: "platform"
+      };
     }
-    return networkMainAddress || null;
+    
+    console.warn("[Deposit] No deposit address found for", coin, "on chain", chainId);
+    return null;
   } catch (err) {
-    console.error("Error fetching AsterDEX address:", err);
-    // Fallback to network main_address for EVM
-    return networkMainAddress || null;
+    console.error("Error fetching deposit address:", err);
+    // Fallback to platform address for EVM
+    if (chainId !== 101 && platformVaultAddress) {
+      return {
+        vaultAddress: platformVaultAddress,
+        network: "EVM",
+        chainId,
+        source: "platform"
+      };
+    }
+    return null;
   }
 };
 
@@ -137,8 +162,9 @@ const Transfer = ({ modalType, asset, close }: any) => {
   >("idle");
   const [feedback, setFeedback] = useState("");
   
-  // AsterDEX deposit address state
+  // Deposit address state
   const [asterDexAddress, setAsterDexAddress] = useState<string | null>(null);
+  const [depositInfo, setDepositInfo] = useState<DepositAddressInfo | null>(null);
   const [loadingAsterDex, setLoadingAsterDex] = useState(false);
 
   // Solana: show the *actual* receiving token account (may differ from the vault owner address)
@@ -155,31 +181,35 @@ const Transfer = ({ modalType, asset, close }: any) => {
     }
   }, [asset]);
 
-  // Fetch AsterDEX deposit address when network changes (for deposits)
+  // Fetch deposit address when network changes (for deposits)
   useEffect(() => {
     if (modalType !== "deposit" || !selectedNetConfig || !asset) {
       setAsterDexAddress(null);
+      setDepositInfo(null);
       return;
     }
 
     const chainId = getAsterDexChainId(selectedNetConfig.network);
     if (!chainId) {
       setAsterDexAddress(null);
+      setDepositInfo(null);
       return;
     }
 
     const fetchAddress = async () => {
       setLoadingAsterDex(true);
       try {
-        // Get network's main_address for EVM deposits
-        const networkMainAddress = selectedNetConfig.network?.main_address || 
-                                   selectedNetConfig.network?.mainAddress || null;
+        // Get platform vault address for EVM chains
+        const platformVaultAddress = selectedNetConfig.network?.main_address || 
+                                     selectedNetConfig.network?.mainAddress || null;
         
-        const addr = await fetchAsterDexAddress(asset.symbol, chainId, networkMainAddress || undefined);
-        setAsterDexAddress(addr);
+        const info = await fetchDepositAddress(asset.symbol, chainId, platformVaultAddress || undefined);
+        setDepositInfo(info);
+        setAsterDexAddress(info?.vaultAddress || null);
       } catch (err) {
-        console.error("Error fetching AsterDEX address:", err);
+        console.error("Error fetching deposit address:", err);
         setAsterDexAddress(null);
+        setDepositInfo(null);
       } finally {
         setLoadingAsterDex(false);
       }
@@ -486,7 +516,9 @@ const Transfer = ({ modalType, asset, close }: any) => {
           </h2>
           <p className="text-xs text-neutral-500">
             {modalType === "deposit"
-              ? "Direct to AsterDEX • Minimal fees"
+              ? depositInfo?.source === "asterdex" 
+                ? "Direct to AsterDEX • Minimal fees"
+                : "Deposit to platform • Funds credited instantly"
               : "Enter destination & amount"}
           </p>
         </div>
@@ -526,17 +558,30 @@ const Transfer = ({ modalType, asset, close }: any) => {
       <div className="space-y-6">
         {modalType === "deposit" ? (
           <>
-            {/* AsterDEX Deposit Address Info */}
-            <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4">
+            {/* Deposit Address Info */}
+            <div className={clsx(
+              "rounded-2xl border p-4",
+              depositInfo?.source === "asterdex" 
+                ? "border-blue-500/30 bg-blue-500/5"
+                : "border-emerald-500/30 bg-emerald-500/5"
+            )}>
               <div className="mb-2 flex items-center gap-2">
-                <ExternalLink className="size-4 text-blue-400" />
-                <span className="text-xs font-bold text-blue-400">
-                  AsterDEX Deposit Address
+                <ExternalLink className={clsx(
+                  "size-4",
+                  depositInfo?.source === "asterdex" ? "text-blue-400" : "text-emerald-400"
+                )} />
+                <span className={clsx(
+                  "text-xs font-bold",
+                  depositInfo?.source === "asterdex" ? "text-blue-400" : "text-emerald-400"
+                )}>
+                  {depositInfo?.source === "asterdex" 
+                    ? "AsterDEX Deposit Address"
+                    : "Platform Deposit Address"}
                 </span>
               </div>
               {loadingAsterDex ? (
                 <div className="flex items-center gap-2 py-2">
-                  <Loader2 className="size-4 animate-spin text-blue-400" />
+                  <Loader2 className="size-4 animate-spin text-neutral-400" />
                   <span className="text-sm text-neutral-400">Loading...</span>
                 </div>
               ) : asterDexAddress ? (
@@ -577,7 +622,7 @@ const Transfer = ({ modalType, asset, close }: any) => {
                             {solanaVaultOwner}
                           </p>
                           <p className="mt-1 text-[10px] text-neutral-500">
-                            Solscan may show this owner address as “holding” the vault’s tokens. Your transfer destination
+                            Solscan may show this owner address as "holding" the vault's tokens. Your transfer destination
                             is the token account above.
                           </p>
                         </div>
@@ -593,7 +638,9 @@ const Transfer = ({ modalType, asset, close }: any) => {
                 <p className="text-sm text-red-400">Not available for this network</p>
               )}
               <p className="mt-2 text-[10px] text-neutral-500">
-                Funds sent here go directly to AsterDEX for trading
+                {depositInfo?.source === "asterdex"
+                  ? "Funds sent here go directly to AsterDEX for trading"
+                  : "Funds are credited to your platform balance after confirmation"}
               </p>
             </div>
 
