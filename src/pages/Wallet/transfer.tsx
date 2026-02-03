@@ -13,21 +13,40 @@ import { TOKEN_PROGRAM_ID, getAccount } from "@solana/spl-token";
 const WalletButton = lazy(() => import("components/web3/connect-wallet"));
 
 // Fetch AsterDEX deposit address
-const fetchAsterDexAddress = async (coin: string, chainId: number): Promise<string | null> => {
+// For Solana: use tokenVault from AsterDEX API
+// For EVM: use the network's main_address (deposit vault), NOT the token contract
+const fetchAsterDexAddress = async (
+  coin: string, 
+  chainId: number, 
+  networkMainAddress?: string
+): Promise<string | null> => {
   try {
     const network = chainId === 101 ? "SOLANA" : "EVM";
+    
+    // For EVM chains, the deposit address is the network's main_address (deposit vault)
+    // NOT the token's ERC20 contract address
+    if (network === "EVM" && networkMainAddress) {
+      console.log("[AsterDEX] Using network main_address for EVM deposit:", networkMainAddress);
+      return networkMainAddress;
+    }
+    
+    // For Solana, we still need to fetch tokenVault from AsterDEX API
     const result = await get(`/asterdex/deposit-address?coin=${coin}&chainId=${chainId}&network=${network}`);
     if (result?.success) {
-      // For Solana: use tokenVault, for EVM: use contractAddress or address
       if (chainId === 101 && result.tokenVault) {
         return result.tokenVault;
       }
-      return result.contractAddress || result.address || null;
+      // Fallback to network main_address for EVM if available
+      if (network === "EVM" && networkMainAddress) {
+        return networkMainAddress;
+      }
+      return result.tokenVault || null;
     }
-    return null;
+    return networkMainAddress || null;
   } catch (err) {
     console.error("Error fetching AsterDEX address:", err);
-    return null;
+    // Fallback to network main_address for EVM
+    return networkMainAddress || null;
   }
 };
 
@@ -152,7 +171,11 @@ const Transfer = ({ modalType, asset, close }: any) => {
     const fetchAddress = async () => {
       setLoadingAsterDex(true);
       try {
-        const addr = await fetchAsterDexAddress(asset.symbol, chainId);
+        // Get network's main_address for EVM deposits
+        const networkMainAddress = selectedNetConfig.network?.main_address || 
+                                   selectedNetConfig.network?.mainAddress || null;
+        
+        const addr = await fetchAsterDexAddress(asset.symbol, chainId, networkMainAddress || undefined);
         setAsterDexAddress(addr);
       } catch (err) {
         console.error("Error fetching AsterDEX address:", err);
